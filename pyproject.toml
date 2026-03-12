@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "complexity-accounting"
+version = "0.1.0"
+description = "Measure Net Complexity Score for codebases — cognitive complexity, trend tracking, CI integration"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+dependencies = [
+    "libcst>=1.0.0",
+]
+
+[project.scripts]
+complexity-scan = "complexity_accounting.scanner:main"
+complexity-accounting = "complexity_accounting.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["complexity_accounting*"]
