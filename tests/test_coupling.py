@@ -108,6 +108,66 @@ def test_directory_coupling():
         assert data["b.py"].efferent_coupling == 0
 
 
+# ---------------------------------------------------------------------------
+# P2: Extended coupling tests
+# ---------------------------------------------------------------------------
+
+def test_relative_import():
+    path = _write_temp("""
+        from . import utils
+        from ..core import base
+    """)
+    try:
+        m = analyze_file_coupling(path)
+        # Should not crash; relative imports have module names
+        assert isinstance(m, CouplingMetrics)
+    finally:
+        os.unlink(path)
+
+
+def test_star_import():
+    path = _write_temp("""
+        from somelib import *
+    """)
+    try:
+        m = analyze_file_coupling(path)
+        # ImportStar is handled gracefully
+        assert isinstance(m, CouplingMetrics)
+    finally:
+        os.unlink(path)
+
+
+def test_parser_syntax_error():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def broken(:\n    pass\n")
+    os.close(fd)
+    try:
+        m = analyze_file_coupling(path)
+        assert m.efferent_coupling == 0
+    finally:
+        os.unlink(path)
+
+
+def test_compute_coupling_factor_boundary():
+    """All files with equal coupling → factor = 1 + avg/max = 2.0."""
+    data = {
+        "a.py": CouplingMetrics("a.py", 5, []),
+        "b.py": CouplingMetrics("b.py", 5, []),
+    }
+    factor = compute_coupling_factor(data)
+    assert factor == 2.0
+
+
+def test_compute_coupling_factor_one_zero():
+    data = {
+        "a.py": CouplingMetrics("a.py", 0, []),
+        "b.py": CouplingMetrics("b.py", 6, []),
+    }
+    factor = compute_coupling_factor(data)
+    # avg=3, max=6, factor = 1 + 3/6 = 1.5
+    assert factor == 1.5
+
+
 if __name__ == "__main__":
     import traceback
 
