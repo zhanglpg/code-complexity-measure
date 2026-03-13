@@ -340,8 +340,39 @@ class TestRealGitRepo:
         assert deltas["app.ts"].status == "modified"
         assert deltas["app.ts"].cognitive_delta > 0
 
-    def test_scan_directory_mixed_six_languages(self, tmp_git_repo):
-        """scan_directory picks up .py, .go, .java, .cpp, .js, and .ts files together."""
+    def test_compare_refs_rust_file(self, tmp_git_repo):
+        """compare_refs detects modified Rust files between real commits."""
+        from complexity_accounting.git_tracker import compare_refs
+
+        _commit_file(
+            tmp_git_repo, "app.rs",
+            "fn run() {}\n",
+            "initial rust",
+        )
+        _git(tmp_git_repo, "tag", "v1")
+
+        _commit_file(
+            tmp_git_repo, "app.rs",
+            "fn run(x: i32) -> i32 {\n"
+            "    if x > 0 {\n"
+            "        for i in 0..x {\n"
+            "            if i > 5 { return i; }\n"
+            "        }\n"
+            "    }\n"
+            "    0\n"
+            "}\n",
+            "add rust complexity",
+        )
+        _git(tmp_git_repo, "tag", "v2")
+
+        report = compare_refs("v1", "v2", str(tmp_git_repo))
+        deltas = {d.path: d for d in report.file_deltas}
+        assert "app.rs" in deltas
+        assert deltas["app.rs"].status == "modified"
+        assert deltas["app.rs"].cognitive_delta > 0
+
+    def test_scan_directory_mixed_seven_languages(self, tmp_git_repo):
+        """scan_directory picks up .py, .go, .java, .cpp, .js, .ts, and .rs files together."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "a.py").write_text("def foo(): pass\n")
@@ -360,8 +391,11 @@ class TestRealGitRepo:
             (Path(tmpdir) / "f.ts").write_text(
                 "function corge(): void {}\n"
             )
+            (Path(tmpdir) / "g.rs").write_text(
+                "fn grault() {}\n"
+            )
             result = scan_directory(tmpdir)
-            assert len(result.files) == 6
+            assert len(result.files) == 7
             names = set()
             for f in result.files:
                 for fn in f.functions:
@@ -372,6 +406,7 @@ class TestRealGitRepo:
             assert "qux" in names
             assert "quux" in names
             assert "corge" in names
+            assert "grault" in names
 
 
 # ---------------------------------------------------------------------------
@@ -542,6 +577,27 @@ class TestCLIWorkflow:
             (Path(tmpdir) / "app.ts").write_text(
                 "function add(a: number, b: number): number {\n"
                 "    return a + b;\n"
+                "}\n"
+            )
+            args = self._make_scan_args(path=tmpdir, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            data = json.loads(out.getvalue())
+            assert data["summary"]["total_functions"] >= 1
+            func_names = []
+            for f in data["files"]:
+                for fn in f.get("functions", []):
+                    func_names.append(fn["name"])
+            assert "add" in func_names
+
+    def test_cli_scan_rust_file(self, tmp_git_repo):
+        """cmd_scan produces valid JSON for a Rust file."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.rs").write_text(
+                "fn add(a: i32, b: i32) -> i32 {\n"
+                "    a + b\n"
                 "}\n"
             )
             args = self._make_scan_args(path=tmpdir, json=True)
