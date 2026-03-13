@@ -1,0 +1,51 @@
+# Copy this file to .github/workflows/complexity-check.yml in your repository.
+#
+# This workflow runs complexity analysis on every push to main and on all PRs.
+# On PRs it posts (and updates) a comment with the complexity report.
+
+name: Complexity Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write  # Required for PR comments
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for comparison
+
+      # --- Minimal usage ---
+      # - name: Complexity Check
+      #   uses: zhanglpg/code-complexity-measure@v1
+      #   with:
+      #     path: 'src'
+
+      # --- Full usage ---
+      - name: Complexity Check
+        id: complexity
+        uses: zhanglpg/code-complexity-measure@v1
+        with:
+          path: '.'
+          threshold: '10'          # Cognitive complexity hotspot threshold
+          fail-above: '8'          # Fail the check if NCS > 8
+          post-comment: 'true'     # Post/update a PR comment with the report
+          update-comment: 'true'   # Update existing comment instead of creating duplicates
+          extras: ''               # Language extras: 'go', 'java', 'cpp', or 'go,java'
+          python-version: '3.11'
+
+      # --- Use outputs in downstream steps ---
+      - name: Print results
+        if: always()
+        run: |
+          echo "NCS:      ${{ steps.complexity.outputs.ncs }}"
+          echo "Hotspots: ${{ steps.complexity.outputs.hotspot-count }}"
+          echo "Passed:   ${{ steps.complexity.outputs.pass }}"
+          echo "Delta:    ${{ steps.complexity.outputs.delta }}"
