@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "complexity-accounting"
@@ -11,7 +11,11 @@ requires-python = ">=3.8"
 license = {text = "MIT"}
 dependencies = [
     "libcst>=1.0.0",
+    "tomli>=1.0.0; python_version < '3.11'",
 ]
+
+[project.optional-dependencies]
+go = ["tree-sitter>=0.21.0", "tree-sitter-go>=0.21.0"]
 
 [project.scripts]
 complexity-scan = "complexity_accounting.scanner:main"
