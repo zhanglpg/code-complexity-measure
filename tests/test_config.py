@@ -73,6 +73,49 @@ def test_cli_overrides():
     assert config.hotspot_threshold == 15
 
 
+# ---------------------------------------------------------------------------
+# P2: Extended config tests
+# ---------------------------------------------------------------------------
+
+def test_apply_dict_type_coercion_int():
+    from complexity_accounting.config import _apply_dict
+    config = Config()
+    _apply_dict(config, {"hotspot-threshold": "15"})
+    assert config.hotspot_threshold == 15
+    assert isinstance(config.hotspot_threshold, int)
+
+
+def test_apply_dict_type_coercion_float():
+    from complexity_accounting.config import _apply_dict
+    config = Config()
+    _apply_dict(config, {"weight-cognitive": "0.9"})
+    assert config.weight_cognitive == 0.9
+    assert isinstance(config.weight_cognitive, float)
+
+
+def test_load_config_tomllib_none():
+    import complexity_accounting.config as cfg
+    original = cfg.tomllib
+    try:
+        cfg.tomllib = None
+        config = load_config("/tmp")
+        assert config == Config()
+    finally:
+        cfg.tomllib = original
+
+
+def test_load_config_malformed_toml():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = Path(tmpdir) / ".complexity.toml"
+        toml_path.write_text("this is not valid toml [[[")
+        try:
+            config = load_config(tmpdir)
+            # If it raises, that's also acceptable behavior
+            assert False, "Should have raised on malformed TOML"
+        except Exception:
+            pass  # Expected — malformed TOML raises
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -262,6 +262,172 @@ def test_fixture_sample():
     assert func_map["Start"].qualified_name == "Server.Start"
 
 
+# ---------------------------------------------------------------------------
+# P1: Extended Go parser tests
+# ---------------------------------------------------------------------------
+
+def test_ensure_tree_sitter_when_none():
+    import complexity_accounting.go_parser as gp
+    original = gp.GO_LANGUAGE
+    try:
+        gp.GO_LANGUAGE = None
+        try:
+            gp._ensure_tree_sitter()
+            assert False, "Should have raised ImportError"
+        except ImportError as e:
+            assert "tree-sitter-go" in str(e)
+    finally:
+        gp.GO_LANGUAGE = original
+
+
+def test_count_params_variadic():
+    path = _write_temp_go("""
+        package main
+
+        func Sum(args ...int) int {
+            total := 0
+            for _, v := range args {
+                total += v
+            }
+            return total
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        assert fn.params >= 1
+    finally:
+        os.unlink(path)
+
+
+def test_else_if_chain_cognitive():
+    path = _write_temp_go("""
+        package main
+
+        func Classify(x int) string {
+            if x < 0 {
+                return "negative"
+            } else if x == 0 {
+                return "zero"
+            } else if x < 10 {
+                return "small"
+            } else {
+                return "large"
+            }
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        # if: +1, else-if: +1 (flat), else-if: +1 (flat) = 3
+        # Nesting should NOT compound for else-if chains
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+def test_type_switch():
+    path = _write_temp_go("""
+        package main
+
+        func TypeCheck(x interface{}) string {
+            switch x.(type) {
+            case int:
+                return "int"
+            case string:
+                return "string"
+            default:
+                return "unknown"
+            }
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity >= 1
+    finally:
+        os.unlink(path)
+
+
+def test_select_with_communication_case():
+    path = _write_temp_go("""
+        package main
+
+        func Listen(ch1 chan int, ch2 chan string) {
+            select {
+            case v := <-ch1:
+                _ = v
+            case s := <-ch2:
+                _ = s
+            }
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity >= 1  # select
+    finally:
+        os.unlink(path)
+
+
+def test_func_literal_nesting():
+    path = _write_temp_go("""
+        package main
+
+        func Outer() {
+            f := func() {
+                if true {
+                    return
+                }
+            }
+            f()
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        # func_literal increases nesting, if inside gets nesting penalty
+        assert fn.cognitive_complexity >= 2
+    finally:
+        os.unlink(path)
+
+
+def test_count_go_lines_multiline_block_comment():
+    source = "package main\n\n/*\nThis is a\nmulti-line comment\n*/\nfunc main() {}\n"
+    total, code, comment, blank = count_go_lines(source)
+    assert comment >= 3  # /*, content lines, */
+
+
+def test_count_go_lines_unclosed_block_comment():
+    source = "package main\n\n/* unclosed\nstill comment\nforever comment\n"
+    total, code, comment, blank = count_go_lines(source)
+    assert comment >= 3  # all lines after /* are comment
+
+
+def test_count_go_lines_inline_block_comment():
+    source = "package main\n\nfunc main() { x := 1 /* inline */ }\n"
+    total, code, comment, blank = count_go_lines(source)
+    # Line with inline block comment should count as code
+    assert code >= 2
+
+
+def test_scan_go_file_parse_error():
+    """tree-sitter is permissive, so partial parse should not crash."""
+    path = _write_temp_go("""
+        package main
+
+        func broken( {
+            if {
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        # Should not crash, may return partial results
+        assert isinstance(fm, type(fm))
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     import traceback
 

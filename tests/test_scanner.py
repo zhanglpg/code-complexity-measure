@@ -187,6 +187,340 @@ def test_risk_levels():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# P1: FunctionMetrics extended tests
+# ---------------------------------------------------------------------------
+
+def test_get_risk_level_custom_boundaries():
+    from complexity_accounting.scanner import FunctionMetrics
+    fn = FunctionMetrics("f", "f", "x.py", 1, 5, cognitive_complexity=12)
+    assert fn.get_risk_level(low=5, moderate=15, high=25) == "moderate"
+    assert fn.get_risk_level(low=5, moderate=10, high=15) == "high"
+
+
+def test_get_risk_level_very_high():
+    from complexity_accounting.scanner import FunctionMetrics
+    fn = FunctionMetrics("f", "f", "x.py", 1, 5, cognitive_complexity=25)
+    assert fn.get_risk_level() == "very_high"
+
+
+# ---------------------------------------------------------------------------
+# P1: FileMetrics extended tests
+# ---------------------------------------------------------------------------
+
+def test_hotspots_with_threshold():
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fns = [
+        FunctionMetrics("a", "a", "x.py", 1, 5, cognitive_complexity=5),
+        FunctionMetrics("b", "b", "x.py", 6, 10, cognitive_complexity=10),
+        FunctionMetrics("c", "c", "x.py", 11, 15, cognitive_complexity=15),
+        FunctionMetrics("d", "d", "x.py", 16, 20, cognitive_complexity=20),
+    ]
+    fm = FileMetrics("x.py", fns)
+    hotspots = fm.hotspots(threshold=12)
+    assert len(hotspots) == 2
+    assert all(h.cognitive_complexity >= 12 for h in hotspots)
+
+
+def test_hotspots_default_threshold():
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fns = [
+        FunctionMetrics("a", "a", "x.py", 1, 5, cognitive_complexity=5),
+        FunctionMetrics("b", "b", "x.py", 6, 10, cognitive_complexity=10),
+        FunctionMetrics("c", "c", "x.py", 11, 15, cognitive_complexity=15),
+    ]
+    fm = FileMetrics("x.py", fns)
+    hotspots = fm.hotspots()
+    assert len(hotspots) == 2  # 10 and 15 (>= 10)
+
+
+def test_file_metrics_properties():
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fns = [
+        FunctionMetrics("a", "a", "x.py", 1, 5, cognitive_complexity=4, cyclomatic_complexity=2),
+        FunctionMetrics("b", "b", "x.py", 6, 10, cognitive_complexity=8, cyclomatic_complexity=3),
+    ]
+    fm = FileMetrics("x.py", fns)
+    assert fm.total_cognitive == 12
+    assert fm.total_cyclomatic == 5
+    assert fm.avg_cognitive == 6.0
+    assert fm.max_cognitive == 8
+    assert fm.function_count == 2
+
+
+def test_file_metrics_empty():
+    from complexity_accounting.scanner import FileMetrics
+    fm = FileMetrics("empty.py")
+    assert fm.avg_cognitive == 0.0
+    assert fm.max_cognitive == 0
+    assert fm.function_count == 0
+
+
+# ---------------------------------------------------------------------------
+# P1: ScanResult extended tests
+# ---------------------------------------------------------------------------
+
+def test_compute_ncs_with_config():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config(weight_cognitive=0.5, weight_cyclomatic=0.5, hotspot_threshold=5)
+        ncs_with = result.compute_ncs(config, churn_factor=1.2, coupling_factor=1.5)
+        ncs_legacy = result.net_complexity_score
+        # They should differ since we're using different weights and factors
+        assert ncs_with != ncs_legacy
+        assert ncs_with > 0
+    finally:
+        os.unlink(path)
+
+
+def test_compute_ncs_zero_functions():
+    result = ScanResult()
+    assert result.compute_ncs() == 0.0
+
+
+def test_compute_ncs_legacy_defaults():
+    """compute_ncs() without config uses cognitive-only weights."""
+    path = _write_temp("""
+        def foo(x):
+            if x:
+                return True
+            return False
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        # Legacy property and compute_ncs() without config should match
+        assert result.net_complexity_score == result.compute_ncs()
+    finally:
+        os.unlink(path)
+
+
+def test_scan_result_to_dict_structure():
+    path = _write_temp("""
+        def foo():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        d = result.to_dict()
+        assert "summary" in d
+        assert "files" in d
+        s = d["summary"]
+        for key in ("files_scanned", "total_functions", "total_cognitive_complexity",
+                     "total_cyclomatic_complexity", "net_complexity_score",
+                     "avg_cognitive_per_function", "hotspot_count"):
+            assert key in s, f"Missing key: {key}"
+    finally:
+        os.unlink(path)
+
+
+def test_scan_result_to_json_roundtrip():
+    import json
+    path = _write_temp("""
+        def foo():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        parsed = json.loads(result.to_json())
+        assert parsed == result.to_dict()
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# P1: count_lines tests
+# ---------------------------------------------------------------------------
+
+def test_count_lines_multiline_docstring():
+    from complexity_accounting.scanner import count_lines
+    source = '''def foo():
+    """
+    This is a
+    multi-line docstring.
+    """
+    return 1
+'''
+    total, code, comment, blank = count_lines(source)
+    assert comment == 4  # opening """, two content lines, closing """
+    assert code == 2  # def foo(): and return 1
+
+
+def test_count_lines_single_quotes_docstring():
+    from complexity_accounting.scanner import count_lines
+    source = "def foo():\n    '''Single quotes docstring.'''\n    return 1\n"
+    total, code, comment, blank = count_lines(source)
+    assert comment == 1  # single-line '''...'''
+
+
+def test_count_lines_mixed_content():
+    from complexity_accounting.scanner import count_lines
+    source = """# Comment
+def foo():
+    '''docstring'''
+    x = 1
+
+    return x
+"""
+    total, code, comment, blank = count_lines(source)
+    assert total == 6
+    assert comment == 2  # # Comment + docstring
+    assert blank == 1  # empty line
+    assert code == 3  # def, x=1, return
+
+
+# ---------------------------------------------------------------------------
+# P1: Cognitive complexity edge cases
+# ---------------------------------------------------------------------------
+
+def test_cognitive_nested_lambda():
+    path = _write_temp("""
+        def outer():
+            f = lambda x: x if x > 0 else -x
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # Lambda increases nesting, ternary (IfExp) adds +1
+        assert fn.cognitive_complexity >= 1
+    finally:
+        os.unlink(path)
+
+
+def test_cognitive_with_statement_nesting():
+    path = _write_temp("""
+        def read_file():
+            with open("x") as f:
+                if f:
+                    return f.read()
+            return None
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # with adds nesting, if inside gets +2 (1 + nesting=1)
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_cognitive_ternary_in_nesting():
+    path = _write_temp("""
+        def compute(items):
+            for item in items:
+                if item > 0:
+                    result = item if item < 100 else 100
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # for: +1, if: +2 (nested), ternary: +1 (flat, no nesting penalty)
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# P1: Cyclomatic complexity tests
+# ---------------------------------------------------------------------------
+
+def test_cyclomatic_assert():
+    path = _write_temp("""
+        def validate(x):
+            assert x > 0
+            return x
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.cyclomatic_complexity == 2  # baseline 1 + assert
+    finally:
+        os.unlink(path)
+
+
+def test_cyclomatic_mixed_boolean():
+    path = _write_temp("""
+        def check(a, b, c):
+            if a and b or c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # baseline 1 + if + and + or = 4
+        assert fn.cyclomatic_complexity >= 3
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# P1: Error handling tests
+# ---------------------------------------------------------------------------
+
+def test_scan_file_syntax_error():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def broken(:\n    pass\n")
+    os.close(fd)
+    try:
+        fm = scan_file(path)
+        assert fm.functions == []
+        assert fm.total_lines > 0
+    finally:
+        os.unlink(path)
+
+
+def test_scan_directory_exclusion_patterns():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        venv_dir = Path(tmpdir) / "venv" / "lib"
+        venv_dir.mkdir(parents=True)
+        (venv_dir / "pkg.py").write_text("def venv_func(): pass\n")
+        (Path(tmpdir) / "app.py").write_text("def app_func(): pass\n")
+
+        result = scan_directory(tmpdir)
+        paths = [f.path for f in result.files]
+        assert any("app.py" in p for p in paths)
+        assert not any("venv" in p for p in paths)
+
+
+def test_scan_directory_custom_exclusion():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "test_foo.py").write_text("def t(): pass\n")
+        (Path(tmpdir) / "app.py").write_text("def a(): pass\n")
+
+        result = scan_directory(tmpdir, exclude_patterns=["**/test_*"])
+        paths = [f.path for f in result.files]
+        assert any("app.py" in p for p in paths)
+        assert not any("test_foo" in p for p in paths)
+
+
+def test_scan_directory_error_handling():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        good = Path(tmpdir) / "good.py"
+        good.write_text("def ok(): pass\n")
+        bad = Path(tmpdir) / "bad.py"
+        bad.write_text("def ok(): pass\n")
+        os.chmod(str(bad), 0o000)
+        try:
+            result = scan_directory(tmpdir)
+            # Should have scanned at least the good file
+            assert len(result.files) >= 1
+        finally:
+            os.chmod(str(bad), 0o644)
+
+
 if __name__ == "__main__":
     # Simple test runner
     import traceback

@@ -1,0 +1,364 @@
+"""Tests for __main__.py CLI commands."""
+import argparse
+import io
+import json
+import os
+import sys
+import tempfile
+import textwrap
+from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
+from unittest.mock import patch, MagicMock
+
+from complexity_accounting.__main__ import cmd_scan, cmd_compare, cmd_trend, main
+from complexity_accounting.scanner import FileMetrics, FunctionMetrics, ScanResult
+from complexity_accounting.git_tracker import DeltaReport, FileDelta
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_scan_args(**overrides):
+    """Build a minimal argparse.Namespace for cmd_scan."""
+    defaults = dict(
+        path="/tmp",
+        json=False,
+        threshold=None,
+        top=20,
+        fail_above=None,
+        config=None,
+        weights=None,
+        churn_days=None,
+        churn_commits=None,
+        no_churn=True,
+        no_coupling=True,
+    )
+    defaults.update(overrides)
+    return argparse.Namespace(**defaults)
+
+
+def _make_file_metrics(cognitive=3, cyclomatic=2, name="foo"):
+    fn = FunctionMetrics(name, name, "test.py", 1, 10,
+                         cognitive_complexity=cognitive,
+                         cyclomatic_complexity=cyclomatic,
+                         nloc=10, params=1, max_nesting=1)
+    return FileMetrics("test.py", [fn], total_lines=10, code_lines=8,
+                       comment_lines=1, blank_lines=1)
+
+
+# ---------------------------------------------------------------------------
+# cmd_scan tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_file_json():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "summary" in result
+        assert "net_complexity_score" in result["summary"]
+        assert "files" in result
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_directory_text():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "simple.py").write_text("def foo(): pass\n")
+        args = _make_scan_args(path=tmpdir, json=False)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "COMPLEXITY ACCOUNTING REPORT" in output
+        assert "Net Complexity Score" in output
+        assert "Files scanned" in output
+
+
+def test_cmd_scan_fail_above_exits():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y, z):
+            if x:
+                if y:
+                    if z:
+                        for i in range(10):
+                            while True:
+                                if i > 5:
+                                    break
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, fail_above=0.001, json=True)
+        out = io.StringIO()
+        try:
+            with redirect_stdout(out):
+                cmd_scan(args)
+            assert False, "Should have exited"
+        except SystemExit as e:
+            assert e.code == 1
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_fail_above_passes():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, fail_above=100.0, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)  # Should not exit
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_weights_parsing():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, weights="cognitive=0.8,cyclomatic=0.2", json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "net_complexity_score" in result["summary"]
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_path_not_found():
+    args = _make_scan_args(path="/nonexistent/path/xyz")
+    try:
+        cmd_scan(args)
+        assert False, "Should have exited"
+    except SystemExit as e:
+        assert e.code == 1
+
+
+def test_cmd_scan_coupling_enabled():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, no_coupling=False, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "coupling_factor" in result["summary"]
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_coupling_graceful_failure():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        with patch("complexity_accounting.coupling.analyze_directory_coupling",
+                    side_effect=RuntimeError("boom")):
+            args = _make_scan_args(path=path, no_coupling=False, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            result = json.loads(out.getvalue())
+            assert result["summary"]["coupling_factor"] == 1.0
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_churn_enabled():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, no_churn=False, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "churn_factor" in result["summary"]
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_churn_graceful_failure():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        with patch("complexity_accounting.churn.analyze_churn",
+                    side_effect=RuntimeError("boom")):
+            args = _make_scan_args(path=path, no_churn=False, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            result = json.loads(out.getvalue())
+            assert result["summary"]["churn_factor"] == 1.0
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_ncs_rating_levels():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        # NCS for a simple function is 0.0 → Healthy
+        args = _make_scan_args(path=path, json=False)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "Healthy" in output
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# cmd_compare tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_compare_json():
+    report = DeltaReport("main", "HEAD", 5.0, 7.0, [])
+    with patch("complexity_accounting.git_tracker.compare_refs", return_value=report):
+        args = argparse.Namespace(base="main", head="HEAD", repo=".", json=True,
+                                  markdown=False, full=False, func=cmd_compare)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_compare(args)
+        result = json.loads(out.getvalue())
+        assert result["base_ncs"] == 5.0
+
+
+def test_cmd_compare_markdown():
+    report = DeltaReport("main", "HEAD", 5.0, 7.0, [])
+    with patch("complexity_accounting.git_tracker.compare_refs", return_value=report):
+        args = argparse.Namespace(base="main", head="HEAD", repo=".", json=False,
+                                  markdown=True, full=False, func=cmd_compare)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_compare(args)
+        output = out.getvalue()
+        assert "Complexity Report" in output
+
+
+# ---------------------------------------------------------------------------
+# cmd_trend tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_trend_json():
+    trend_data = [{"commit": "abc12345", "date": "2024-01-01", "message": "init",
+                   "ncs": 3.5, "total_cognitive": 10, "total_functions": 5, "files": 2}]
+    with patch("complexity_accounting.git_tracker.trend", return_value=trend_data):
+        args = argparse.Namespace(repo=".", commits=10, ref="HEAD", json=True,
+                                  func=cmd_trend)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_trend(args)
+        result = json.loads(out.getvalue())
+        assert isinstance(result, list)
+        assert result[0]["ncs"] == 3.5
+
+
+def test_cmd_trend_text():
+    trend_data = [{"commit": "abc12345", "date": "2024-01-01", "message": "init",
+                   "ncs": 3.5, "total_cognitive": 10, "total_functions": 5, "files": 2}]
+    with patch("complexity_accounting.git_tracker.trend", return_value=trend_data):
+        args = argparse.Namespace(repo=".", commits=10, ref="HEAD", json=False,
+                                  func=cmd_trend)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_trend(args)
+        output = out.getvalue()
+        assert "Commit" in output
+        assert "NCS" in output
+
+
+def test_cmd_trend_error_entries():
+    trend_data = [{"commit": "abc12345", "date": "2024-01-01", "message": "bad",
+                   "error": "scan failed"}]
+    with patch("complexity_accounting.git_tracker.trend", return_value=trend_data):
+        args = argparse.Namespace(repo=".", commits=10, ref="HEAD", json=False,
+                                  func=cmd_trend)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_trend(args)
+        output = out.getvalue()
+        assert "err" in output
+
+
+# ---------------------------------------------------------------------------
+# main() routing
+# ---------------------------------------------------------------------------
+
+def test_main_no_command():
+    with patch("sys.argv", ["prog"]):
+        try:
+            main()
+            assert False, "Should have exited"
+        except SystemExit as e:
+            assert e.code == 1
+
+
+def test_main_scan_routing():
+    with patch("sys.argv", ["prog", "scan", "/tmp", "--json", "--no-churn", "--no-coupling"]), \
+         patch("complexity_accounting.__main__.cmd_scan") as mock_scan:
+        mock_scan.side_effect = SystemExit(0)
+        try:
+            main()
+        except SystemExit:
+            pass
+        mock_scan.assert_called_once()
+
+
+def test_main_compare_routing():
+    with patch("sys.argv", ["prog", "compare", "--base", "main"]), \
+         patch("complexity_accounting.__main__.cmd_compare") as mock_compare:
+        mock_compare.side_effect = SystemExit(0)
+        try:
+            main()
+        except SystemExit:
+            pass
+        mock_compare.assert_called_once()
+
+
+def test_main_trend_routing():
+    with patch("sys.argv", ["prog", "trend"]), \
+         patch("complexity_accounting.__main__.cmd_trend") as mock_trend:
+        mock_trend.side_effect = SystemExit(0)
+        try:
+            main()
+        except SystemExit:
+            pass
+        mock_trend.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Test runner
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import traceback
+
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    passed = failed = 0
+    for test in tests:
+        try:
+            test()
+            print(f"  ✅ {test.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"  ❌ {test.__name__}: {e}")
+            traceback.print_exc()
+            failed += 1
+    print(f"\n{passed} passed, {failed} failed")

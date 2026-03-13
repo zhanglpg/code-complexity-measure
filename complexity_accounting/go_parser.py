@@ -199,6 +199,8 @@ def _count_params(param_list_node) -> int:
             # Each parameter_declaration may have multiple identifiers
             ids = [c for c in child.children if c.type == "identifier"]
             count += max(len(ids), 1)
+        elif child.type == "variadic_parameter_declaration":
+            count += 1
     return count
 
 
