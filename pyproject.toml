@@ -16,6 +16,8 @@ dependencies = [
 
 [project.optional-dependencies]
 go = ["tree-sitter>=0.21.0", "tree-sitter-go>=0.21.0"]
+test = ["pytest>=7.0", "pytest-cov>=4.0"]
+dev = ["complexity-accounting[test,go]"]
 
 [project.scripts]
 complexity-scan = "complexity_accounting.scanner:main"
@@ -23,3 +25,19 @@ complexity-accounting = "complexity_accounting.__main__:main"
 
 [tool.setuptools.packages.find]
 include = ["complexity_accounting*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "e2e: end-to-end tests requiring git",
+    "go: tests requiring tree-sitter-go",
+]
+
+[tool.coverage.run]
+source = ["complexity_accounting"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
