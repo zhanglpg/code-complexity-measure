@@ -1,5 +1,5 @@
 name: 'Complexity Accounting'
-description: 'Measure Net Complexity Score and gate PRs on complexity thresholds. Reports on push and pull_request events with Job Summary and PR comments.'
+description: 'Measure Net Complexity Score and gate PRs on complexity thresholds. '
 
 branding:
   icon: 'bar-chart-2'
