@@ -20,8 +20,9 @@ java = ["tree-sitter>=0.21.0", "tree-sitter-java>=0.21.0"]
 cpp = ["tree-sitter>=0.21.0", "tree-sitter-cpp>=0.21.0"]
 js = ["tree-sitter>=0.21.0", "tree-sitter-javascript>=0.21.0"]
 ts = ["tree-sitter>=0.21.0", "tree-sitter-typescript>=0.21.0"]
+rust = ["tree-sitter>=0.21.0", "tree-sitter-rust>=0.21.0"]
 test = ["pytest>=7.0", "pytest-cov>=4.0"]
-dev = ["complexity-accounting[test,go,java,cpp,js,ts]"]
+dev = ["complexity-accounting[test,go,java,cpp,js,ts,rust]"]
 
 [project.scripts]
 complexity-scan = "complexity_accounting.scanner:main"
@@ -41,6 +42,7 @@ markers = [
     "cpp: tests requiring tree-sitter-cpp",
     "js: tests requiring tree-sitter-javascript",
     "ts: tests requiring tree-sitter-typescript",
+    "rust: tests requiring tree-sitter-rust",
 ]
 
 [tool.coverage.run]

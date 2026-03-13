@@ -29,7 +29,7 @@ import libcst as cst
 from libcst import metadata
 
 # Supported file extensions for scanning
-SUPPORTED_EXTENSIONS = {'.py', '.go', '.java', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx'}
+SUPPORTED_EXTENSIONS = {'.py', '.go', '.java', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx', '.rs'}
 
 
 # ---------------------------------------------------------------------------
@@ -547,6 +547,10 @@ def scan_file(file_path: str) -> FileMetrics:
     if path.suffix in ('.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx'):
         from .cpp_parser import scan_cpp_file
         return scan_cpp_file(file_path)
+
+    if path.suffix == '.rs':
+        from .rust_parser import scan_rust_file
+        return scan_rust_file(file_path)
 
     source = path.read_text(encoding="utf-8", errors="replace")
     

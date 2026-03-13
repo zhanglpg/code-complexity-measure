@@ -243,3 +243,37 @@ requires_ts = pytest.mark.skipif(
     not _has_tree_sitter_typescript(),
     reason="tree-sitter-typescript not installed",
 )
+
+
+@pytest.fixture
+def tmp_rs_file():
+    """Factory fixture: create temporary Rust files from source strings."""
+    paths = []
+
+    def _create(source):
+        fd, path = tempfile.mkstemp(suffix=".rs")
+        os.write(fd, textwrap.dedent(source).encode())
+        os.close(fd)
+        paths.append(path)
+        return path
+
+    yield _create
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def _has_tree_sitter_rust():
+    try:
+        import tree_sitter_rust  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+requires_rust = pytest.mark.skipif(
+    not _has_tree_sitter_rust(),
+    reason="tree-sitter-rust not installed",
+)
