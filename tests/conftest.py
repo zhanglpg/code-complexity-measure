@@ -76,6 +76,26 @@ def tmp_git_repo(tmp_path):
     return repo
 
 
+@pytest.fixture
+def tmp_java_file():
+    """Factory fixture: create temporary Java files from source strings."""
+    paths = []
+
+    def _create(source):
+        fd, path = tempfile.mkstemp(suffix=".java")
+        os.write(fd, textwrap.dedent(source).encode())
+        os.close(fd)
+        paths.append(path)
+        return path
+
+    yield _create
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
 def _has_tree_sitter_go():
     try:
         import tree_sitter_go  # noqa: F401
@@ -84,7 +104,20 @@ def _has_tree_sitter_go():
         return False
 
 
+def _has_tree_sitter_java():
+    try:
+        import tree_sitter_java  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 requires_go = pytest.mark.skipif(
     not _has_tree_sitter_go(),
     reason="tree-sitter-go not installed",
+)
+
+requires_java = pytest.mark.skipif(
+    not _has_tree_sitter_java(),
+    reason="tree-sitter-java not installed",
 )

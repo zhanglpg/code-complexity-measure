@@ -217,6 +217,59 @@ class TestRealGitRepo:
         assert "hot.py" in churn
         assert churn["hot.py"] >= 2  # changed in multiple commits
 
+    def test_compare_refs_java_file(self, tmp_git_repo):
+        """compare_refs detects modified Java files between real commits."""
+        from complexity_accounting.git_tracker import compare_refs
+
+        _commit_file(
+            tmp_git_repo, "App.java",
+            "public class App { public static void run() {} }\n",
+            "initial java",
+        )
+        _git(tmp_git_repo, "tag", "v1")
+
+        _commit_file(
+            tmp_git_repo, "App.java",
+            "public class App {\n"
+            "    public static void run(int x) {\n"
+            "        if (x > 0) {\n"
+            "            for (int i = 0; i < x; i++) {\n"
+            "                if (i > 5) { return; }\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            "add java complexity",
+        )
+        _git(tmp_git_repo, "tag", "v2")
+
+        report = compare_refs("v1", "v2", str(tmp_git_repo))
+        deltas = {d.path: d for d in report.file_deltas}
+        assert "App.java" in deltas
+        assert deltas["App.java"].status == "modified"
+        assert deltas["App.java"].cognitive_delta > 0
+
+    def test_scan_directory_mixed_three_languages(self, tmp_git_repo):
+        """scan_directory picks up .py, .go, and .java files together."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "a.py").write_text("def foo(): pass\n")
+            (Path(tmpdir) / "b.go").write_text(
+                "package main\nfunc Bar() {}\n"
+            )
+            (Path(tmpdir) / "C.java").write_text(
+                "public class C { public static void baz() {} }\n"
+            )
+            result = scan_directory(tmpdir)
+            assert len(result.files) == 3
+            names = set()
+            for f in result.files:
+                for fn in f.functions:
+                    names.add(fn.name)
+            assert "foo" in names
+            assert "Bar" in names
+            assert "baz" in names
+
 
 # ---------------------------------------------------------------------------
 # CLI workflow E2E tests
@@ -313,6 +366,29 @@ class TestCLIWorkflow:
         data = json.loads(out.getvalue())
         assert isinstance(data, list)
         assert len(data) == 2
+
+    def test_cli_scan_java_file(self, tmp_git_repo):
+        """cmd_scan produces valid JSON for a Java file."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "App.java").write_text(
+                "public class App {\n"
+                "    public static int add(int a, int b) {\n"
+                "        return a + b;\n"
+                "    }\n"
+                "}\n"
+            )
+            args = self._make_scan_args(path=tmpdir, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            data = json.loads(out.getvalue())
+            assert data["summary"]["total_functions"] >= 1
+            func_names = []
+            for f in data["files"]:
+                for fn in f.get("functions", []):
+                    func_names.append(fn["name"])
+            assert "add" in func_names
 
     def test_cli_scan_with_config_file(self):
         """cmd_scan with fixture config applies custom weights."""
