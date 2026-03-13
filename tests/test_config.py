@@ -116,6 +116,81 @@ def test_load_config_malformed_toml():
             pass  # Expected — malformed TOML raises
 
 
+# ---------------------------------------------------------------------------
+# P3: NCS model config tests
+# ---------------------------------------------------------------------------
+
+def test_ncs_model_default():
+    config = Config()
+    assert config.ncs_model == "multiplicative"
+    assert config.weight_hotspot == 0.2
+    assert config.weight_churn == 0.1
+    assert config.weight_coupling == 0.1
+
+
+def test_load_ncs_model_from_toml():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = Path(tmpdir) / ".complexity.toml"
+        toml_path.write_text('ncs-model = "additive"\nweight-hotspot = 0.3\n')
+        config = load_config(tmpdir)
+        assert config.ncs_model == "additive"
+        assert config.weight_hotspot == 0.3
+
+
+# ---------------------------------------------------------------------------
+# P4: Language-specific config tests
+# ---------------------------------------------------------------------------
+
+def test_language_overrides_empty():
+    config = Config()
+    assert config.language_overrides == {}
+
+
+def test_load_language_overrides():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = Path(tmpdir) / ".complexity.toml"
+        toml_path.write_text(
+            '[language.typescript]\nrisk-low = 8\nhotspot-threshold = 15\n'
+        )
+        config = load_config(tmpdir)
+        assert "typescript" in config.language_overrides
+        assert config.language_overrides["typescript"]["risk_low"] == 8
+        assert config.language_overrides["typescript"]["hotspot_threshold"] == 15
+
+
+def test_load_language_overrides_pyproject():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pyproject = Path(tmpdir) / "pyproject.toml"
+        pyproject.write_text(
+            '[tool.complexity-accounting.language.python]\n'
+            'hotspot-threshold = 12\n'
+        )
+        config = load_config(tmpdir)
+        assert "python" in config.language_overrides
+        assert config.language_overrides["python"]["hotspot_threshold"] == 12
+
+
+def test_get_hotspot_threshold_with_language():
+    config = Config(
+        hotspot_threshold=10,
+        language_overrides={"typescript": {"hotspot_threshold": 15}},
+    )
+    assert config.get_hotspot_threshold() == 10
+    assert config.get_hotspot_threshold("python") == 10
+    assert config.get_hotspot_threshold("typescript") == 15
+
+
+def test_get_risk_levels_with_language():
+    config = Config(
+        risk_low=5, risk_moderate=10, risk_high=20,
+        language_overrides={"typescript": {"risk_low": 8, "risk_moderate": 15}},
+    )
+    assert config.get_risk_levels() == (5, 10, 20)
+    assert config.get_risk_levels("python") == (5, 10, 20)
+    # TypeScript overrides low and moderate but inherits high
+    assert config.get_risk_levels("typescript") == (8, 15, 20)
+
+
 if __name__ == "__main__":
     import traceback
 
