@@ -73,9 +73,9 @@ def cmd_scan(args):
 
     ncs = result.compute_ncs(config, churn_factor=churn_factor, coupling_factor=coupling_factor)
 
-    # Optionally compute explanation
+    # Compute explanation by default (suppress with --brief)
     explanation = None
-    if args.explain:
+    if not args.brief:
         explanation = result.compute_ncs_explained(
             config, churn_factor=churn_factor, coupling_factor=coupling_factor
         )
@@ -256,7 +256,7 @@ def main():
         help="NCS formula: multiplicative (default) or additive",
     )
     scan_p.add_argument(
-        "--explain", action="store_true", help="Show NCS factor breakdown"
+        "--brief", action="store_true", help="Hide NCS factor breakdown (shown by default)"
     )
     scan_p.set_defaults(func=cmd_scan)
 

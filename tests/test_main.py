@@ -34,7 +34,7 @@ def _make_scan_args(**overrides):
         no_churn=True,
         no_coupling=True,
         ncs_model=None,
-        explain=False,
+        brief=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -389,10 +389,11 @@ def test_cmd_scan_ncs_model_multiplicative_default():
 
 
 # ---------------------------------------------------------------------------
-# --explain tests
+# --brief tests (explain is now the default)
 # ---------------------------------------------------------------------------
 
-def test_cmd_scan_explain_text():
+def test_cmd_scan_default_explain_text():
+    """By default (no --brief), text output includes NCS breakdown."""
     fd, path = tempfile.mkstemp(suffix=".py")
     os.write(fd, textwrap.dedent("""
         def complex_func(x, y):
@@ -403,7 +404,7 @@ def test_cmd_scan_explain_text():
     """).encode())
     os.close(fd)
     try:
-        args = _make_scan_args(path=path, explain=True)
+        args = _make_scan_args(path=path)
         out = io.StringIO()
         with redirect_stdout(out):
             cmd_scan(args)
@@ -418,7 +419,8 @@ def test_cmd_scan_explain_text():
         os.unlink(path)
 
 
-def test_cmd_scan_explain_json():
+def test_cmd_scan_default_explain_json():
+    """By default (no --brief), JSON output includes explanation."""
     fd, path = tempfile.mkstemp(suffix=".py")
     os.write(fd, textwrap.dedent("""
         def complex_func(x, y):
@@ -429,7 +431,7 @@ def test_cmd_scan_explain_json():
     """).encode())
     os.close(fd)
     try:
-        args = _make_scan_args(path=path, explain=True, json=True)
+        args = _make_scan_args(path=path, json=True)
         out = io.StringIO()
         with redirect_stdout(out):
             cmd_scan(args)
@@ -447,18 +449,41 @@ def test_cmd_scan_explain_json():
         os.unlink(path)
 
 
-def test_cmd_scan_no_explain_json():
-    """Without --explain, JSON output should not contain explanation."""
+def test_cmd_scan_brief_json():
+    """With --brief, JSON output should not contain explanation."""
     fd, path = tempfile.mkstemp(suffix=".py")
     os.write(fd, b"def hello(): pass\n")
     os.close(fd)
     try:
-        args = _make_scan_args(path=path, json=True)
+        args = _make_scan_args(path=path, json=True, brief=True)
         out = io.StringIO()
         with redirect_stdout(out):
             cmd_scan(args)
         result = json.loads(out.getvalue())
         assert "explanation" not in result
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_brief_text():
+    """With --brief, text output should not contain NCS breakdown."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y):
+            if x:
+                if y:
+                    return True
+            return False
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, brief=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "COMPLEXITY ACCOUNTING REPORT" in output
+        assert "NCS Breakdown" not in output
     finally:
         os.unlink(path)
 
