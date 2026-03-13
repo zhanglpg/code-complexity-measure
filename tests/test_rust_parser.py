@@ -4,8 +4,18 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from complexity_accounting.rust_parser import scan_rust_file, count_rust_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+_has_rust = True
+try:
+    import tree_sitter_rust  # noqa: F401
+except ImportError:
+    _has_rust = False
+
+requires_rust = pytest.mark.skipif(not _has_rust, reason="tree-sitter-rust not installed")
 
 
 def _write_temp_rs(source: str) -> str:
@@ -15,6 +25,7 @@ def _write_temp_rs(source: str) -> str:
     return path
 
 
+@requires_rust
 def test_simple_function():
     path = _write_temp_rs("""
         fn add(a: i32, b: i32) -> i32 {
@@ -33,6 +44,7 @@ def test_simple_function():
         os.unlink(path)
 
 
+@requires_rust
 def test_nested_ifs():
     path = _write_temp_rs("""
         fn check(x: i32, y: i32, z: i32) -> bool {
@@ -55,6 +67,7 @@ def test_nested_ifs():
         os.unlink(path)
 
 
+@requires_rust
 def test_for_with_break():
     path = _write_temp_rs("""
         fn find(items: &[i32], target: i32) -> i32 {
@@ -74,6 +87,7 @@ def test_for_with_break():
         os.unlink(path)
 
 
+@requires_rust
 def test_match_expression():
     path = _write_temp_rs("""
         fn classify(n: i32) -> &'static str {
@@ -92,6 +106,7 @@ def test_match_expression():
         os.unlink(path)
 
 
+@requires_rust
 def test_boolean_ops():
     path = _write_temp_rs("""
         fn validate(a: bool, b: bool) -> bool {
@@ -109,6 +124,7 @@ def test_boolean_ops():
         os.unlink(path)
 
 
+@requires_rust
 def test_impl_method():
     path = _write_temp_rs("""
         struct Server {
@@ -135,6 +151,7 @@ def test_impl_method():
         os.unlink(path)
 
 
+@requires_rust
 def test_closure_nesting():
     path = _write_temp_rs("""
         fn outer() -> i32 {
@@ -157,6 +174,7 @@ def test_closure_nesting():
         os.unlink(path)
 
 
+@requires_rust
 def test_if_let():
     path = _write_temp_rs("""
         fn unwrap_or(x: Option<i32>) -> i32 {
@@ -175,6 +193,7 @@ def test_if_let():
         os.unlink(path)
 
 
+@requires_rust
 def test_loop_expression():
     path = _write_temp_rs("""
         fn count_up() -> i32 {
@@ -196,6 +215,7 @@ def test_loop_expression():
         os.unlink(path)
 
 
+@requires_rust
 def test_while_let():
     path = _write_temp_rs("""
         fn drain(items: &mut Vec<i32>) {
@@ -212,6 +232,7 @@ def test_while_let():
         os.unlink(path)
 
 
+@requires_rust
 def test_try_expression():
     path = _write_temp_rs("""
         fn try_it(x: Result<i32, String>) -> Result<i32, String> {
@@ -240,6 +261,7 @@ fn main() {
     assert code >= 2
 
 
+@requires_rust
 def test_scan_file_dispatch_rust():
     """Ensure scan_file() routes .rs files to the Rust parser."""
     path = _write_temp_rs("""
@@ -255,6 +277,7 @@ def test_scan_file_dispatch_rust():
         os.unlink(path)
 
 
+@requires_rust
 def test_scan_directory_mixed():
     """scan_directory picks up both .py and .rs files."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -269,6 +292,7 @@ def test_scan_directory_mixed():
         assert "bar" in names
 
 
+@requires_rust
 def test_fixture_sample():
     """Test against the sample.rs fixture file."""
     fixture = Path(__file__).parent / "fixtures" / "sample.rs"
@@ -306,6 +330,7 @@ def test_ensure_tree_sitter_when_none():
         rp.RUST_LANGUAGE = original
 
 
+@requires_rust
 def test_else_if_chain_cognitive():
     path = _write_temp_rs("""
         fn classify(x: i32) -> &'static str {
@@ -329,6 +354,7 @@ def test_else_if_chain_cognitive():
         os.unlink(path)
 
 
+@requires_rust
 def test_while_expression():
     path = _write_temp_rs("""
         fn count_down(mut n: i32) {
@@ -345,6 +371,7 @@ def test_while_expression():
         os.unlink(path)
 
 
+@requires_rust
 def test_continue_in_loop():
     path = _write_temp_rs("""
         fn process(items: &[i32]) {
@@ -364,6 +391,7 @@ def test_continue_in_loop():
         os.unlink(path)
 
 
+@requires_rust
 def test_unsafe_block_nesting():
     path = _write_temp_rs("""
         fn risky() {
@@ -383,6 +411,7 @@ def test_unsafe_block_nesting():
         os.unlink(path)
 
 
+@requires_rust
 def test_trait_impl_method():
     path = _write_temp_rs("""
         trait Handler {
@@ -435,6 +464,7 @@ def test_count_rust_lines_inline_block_comment():
     assert code >= 1
 
 
+@requires_rust
 def test_scan_rust_file_parse_error():
     """tree-sitter is permissive, so partial parse should not crash."""
     path = _write_temp_rs("""
@@ -450,6 +480,7 @@ def test_scan_rust_file_parse_error():
         os.unlink(path)
 
 
+@requires_rust
 def test_multiple_params():
     path = _write_temp_rs("""
         fn multi(a: i32, b: String, c: bool) -> i32 {
@@ -464,6 +495,7 @@ def test_multiple_params():
         os.unlink(path)
 
 
+@requires_rust
 def test_multiple_try_operators():
     path = _write_temp_rs("""
         fn chain(a: Result<i32, String>, b: Result<i32, String>) -> Result<i32, String> {
@@ -480,6 +512,7 @@ def test_multiple_try_operators():
         os.unlink(path)
 
 
+@requires_rust
 def test_nested_match_in_for():
     path = _write_temp_rs("""
         fn process(items: &[Option<i32>]) {
@@ -500,6 +533,7 @@ def test_nested_match_in_for():
         os.unlink(path)
 
 
+@requires_rust
 def test_impl_multiple_methods():
     path = _write_temp_rs("""
         struct Calc;
