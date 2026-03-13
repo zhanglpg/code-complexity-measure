@@ -1,0 +1,69 @@
+name: Action Integration Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test action - basic scan
+        id: scan
+        uses: ./
+        with:
+          path: 'complexity_accounting'
+          threshold: '10'
+
+      - name: Verify outputs are populated
+        run: |
+          echo "NCS=${{ steps.scan.outputs.ncs }}"
+          echo "Hotspots=${{ steps.scan.outputs.hotspot-count }}"
+          echo "Pass=${{ steps.scan.outputs.pass }}"
+
+          # Outputs must be non-empty
+          test -n "${{ steps.scan.outputs.ncs }}" || { echo "FAIL: ncs output is empty"; exit 1; }
+          test -n "${{ steps.scan.outputs.hotspot-count }}" || { echo "FAIL: hotspot-count output is empty"; exit 1; }
+          test -n "${{ steps.scan.outputs.pass }}" || { echo "FAIL: pass output is empty"; exit 1; }
+
+  test-action-with-comment:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test action with PR comment
+        uses: ./
+        with:
+          path: 'complexity_accounting'
+          post-comment: 'true'
+          update-comment: 'true'
+
+  test-action-with-threshold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test action with high threshold (should pass)
+        id: high-threshold
+        uses: ./
+        with:
+          path: 'complexity_accounting'
+          fail-above: '100'
+
+      - name: Verify pass output is true
+        run: |
+          test "${{ steps.high-threshold.outputs.pass }}" = "true" || { echo "FAIL: expected pass=true"; exit 1; }

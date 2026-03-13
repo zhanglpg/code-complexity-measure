@@ -131,25 +131,112 @@ weight-cognitive = 0.8
 weight-cyclomatic = 0.2
 ```
 
-## CI Integration
+## GitHub Action
 
-### GitHub Actions (composite action)
+Use this action in any repository to automatically report complexity scores on pushes and pull requests.
+
+### Quick Start
 
 ```yaml
-- name: Complexity Check
-  uses: your-org/complexity-accounting@v1
-  with:
-    path: '.'
-    threshold: '10'
-    fail-above: '8'
-    output-format: 'markdown'
-    python-version: '3.11'
-    post-comment: 'true'
+# .github/workflows/complexity.yml
+name: Complexity Check
+on: [push, pull_request]
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: zhanglpg/code-complexity-measure@v1
+        with:
+          path: '.'
+          fail-above: '8'
+          post-comment: 'true'
 ```
 
-**Action outputs:** `ncs` (float), `hotspot-count` (int), `pass` (boolean)
+### Inputs
 
-### Manual workflow step
+| Input | Description | Default |
+|-------|-------------|---------|
+| `path` | Path to scan | `.` |
+| `threshold` | Cognitive complexity hotspot threshold | `10` |
+| `fail-above` | Fail the check if NCS exceeds this value | _(none)_ |
+| `output-format` | Output format: `json` or `markdown` | `markdown` |
+| `python-version` | Python version to use | `3.11` |
+| `post-comment` | Post results as a PR comment (`true`/`false`) | `false` |
+| `update-comment` | Update existing PR comment instead of creating duplicates | `true` |
+| `extras` | Comma-separated language extras to install (e.g. `go,java,cpp`) | _(none)_ |
+
+### Outputs
+
+| Output | Description |
+|--------|-------------|
+| `ncs` | Net Complexity Score (float) |
+| `hotspot-count` | Number of hotspot functions (int) |
+| `pass` | Whether the scan passed the threshold (`true`/`false`) |
+| `delta` | NCS delta from comparison, if available (float) |
+
+### Features
+
+- **Job Summary** — Every run writes a complexity report to the GitHub Actions Job Summary, visible on the workflow run page.
+- **PR Comments** — When `post-comment: 'true'`, posts a detailed comparison report as a PR comment. Subsequent pushes update the same comment instead of creating duplicates.
+- **Push & PR Support** — On `pull_request` events, compares the PR base vs head. On `push` events, compares `HEAD~1` vs `HEAD`.
+- **Threshold Gating** — Set `fail-above` to fail the check if NCS exceeds the value. The Job Summary and PR comment are always posted, even when the check fails.
+- **Multi-Language** — Set `extras: 'go,java'` to install Go and Java support via tree-sitter.
+- **Pip Caching** — Dependencies are cached across runs for faster execution.
+
+### Full Example
+
+```yaml
+name: Complexity Check
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write  # Required for PR comments
+
+jobs:
+  complexity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for comparison
+
+      - name: Complexity Check
+        id: complexity
+        uses: zhanglpg/code-complexity-measure@v1
+        with:
+          path: 'src'
+          threshold: '10'
+          fail-above: '8'
+          post-comment: 'true'
+          extras: 'go'
+
+      - name: Use outputs
+        if: always()
+        run: |
+          echo "NCS: ${{ steps.complexity.outputs.ncs }}"
+          echo "Hotspots: ${{ steps.complexity.outputs.hotspot-count }}"
+          echo "Passed: ${{ steps.complexity.outputs.pass }}"
+          echo "Delta: ${{ steps.complexity.outputs.delta }}"
+```
+
+> **Note:** `fetch-depth: 0` is required for comparison reports. `permissions: pull-requests: write` is required for PR comments.
+
+See [`examples/complexity-check.yml`](examples/complexity-check.yml) for a copy-pasteable workflow.
+
+### Manual Workflow Step
+
+You can also use the CLI directly without the composite action:
 
 ```yaml
 - name: Complexity Gate
