@@ -430,7 +430,7 @@ class TestCLIWorkflow:
             no_churn=True,
             no_coupling=True,
             ncs_model=None,
-            explain=False,
+            brief=False,
         )
         defaults.update(overrides)
         return argparse.Namespace(**defaults)
