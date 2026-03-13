@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from .scanner import scan_directory, scan_file, ScanResult, FileMetrics
+from .scanner import scan_directory, scan_file, ScanResult, FileMetrics, SUPPORTED_EXTENSIONS
 
 
 @dataclass
@@ -161,7 +161,7 @@ def get_changed_files(base_ref: str, head_ref: str, repo_path: str) -> Dict[str,
         parts = line.split("\t", 1)
         if len(parts) == 2:
             status, path = parts
-            if path.endswith('.py'):
+            if any(path.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
                 changes[path] = status[0]  # A, M, D, R, etc.
     return changes
 
@@ -176,7 +176,7 @@ def scan_at_ref(ref: str, repo_path: str, files: Optional[List[str]] = None) -> 
     if files is None:
         # Get all Python files at that ref
         output = _run_git(["ls-tree", "-r", "--name-only", ref], cwd=repo_path)
-        files = [f for f in output.splitlines() if f.strip() and f.endswith('.py')]
+        files = [f for f in output.splitlines() if f.strip() and any(f.endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
     
     if not files:
         return metrics

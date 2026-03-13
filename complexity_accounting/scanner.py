@@ -28,6 +28,9 @@ from typing import List, Optional, Dict, Any
 import libcst as cst
 from libcst import metadata
 
+# Supported file extensions for scanning
+SUPPORTED_EXTENSIONS = {'.py', '.go'}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,12 +75,16 @@ class FunctionMetrics:
     
     @property
     def risk_level(self) -> str:
+        return self.get_risk_level()
+
+    def get_risk_level(self, low: int = 5, moderate: int = 10, high: int = 20) -> str:
+        """Return risk level with configurable boundaries."""
         cc = self.cognitive_complexity
-        if cc <= 5:
+        if cc <= low:
             return "low"
-        elif cc <= 10:
+        elif cc <= moderate:
             return "moderate"
-        elif cc <= 20:
+        elif cc <= high:
             return "high"
         else:
             return "very_high"
@@ -140,20 +147,45 @@ class ScanResult:
     @property
     def net_complexity_score(self) -> float:
         """
-        Net Complexity Score (NCS):
-        Weighted average of cognitive complexity per function,
-        penalized by hotspot density.
-        
+        Legacy NCS using cognitive-only formula for backward compatibility.
+
         NCS = avg_cognitive * (1 + hotspot_ratio)
-        
-        Where hotspot_ratio = functions_above_threshold / total_functions
+        """
+        return self.compute_ncs()
+
+    def compute_ncs(
+        self,
+        config=None,
+        churn_factor: float = 1.0,
+        coupling_factor: float = 1.0,
+    ) -> float:
+        """
+        Compute Net Complexity Score with configurable weights and factors.
+
+        NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn * coupling
+
+        When called without arguments, produces the legacy cognitive-only result.
         """
         if self.total_functions == 0:
             return 0.0
-        avg = self.total_cognitive / self.total_functions
-        hotspots = sum(len(f.hotspots()) for f in self.files)
+
+        if config is not None:
+            w_cog = config.weight_cognitive
+            w_cyc = config.weight_cyclomatic
+            threshold = config.hotspot_threshold
+        else:
+            # Legacy defaults: cognitive-only
+            w_cog = 1.0
+            w_cyc = 0.0
+            threshold = 10
+
+        avg_cog = self.total_cognitive / self.total_functions
+        avg_cyc = self.total_cyclomatic / self.total_functions
+        hotspots = sum(len(f.hotspots(threshold)) for f in self.files)
         hotspot_ratio = hotspots / self.total_functions
-        return round(avg * (1 + hotspot_ratio), 2)
+
+        base = w_cog * avg_cog + w_cyc * avg_cyc
+        return round(base * (1 + hotspot_ratio) * churn_factor * coupling_factor, 2)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -493,8 +525,13 @@ def count_lines(source: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 def scan_file(file_path: str) -> FileMetrics:
-    """Scan a single Python file and return its metrics."""
+    """Scan a single source file and return its metrics."""
     path = Path(file_path)
+
+    if path.suffix == '.go':
+        from .go_parser import scan_go_file
+        return scan_go_file(file_path)
+
     source = path.read_text(encoding="utf-8", errors="replace")
     
     total, code, comment, blank = count_lines(source)
@@ -543,25 +580,26 @@ def scan_directory(
     root = Path(directory)
     result = ScanResult()
     
-    for py_file in sorted(root.rglob("*.py")):
+    from fnmatch import fnmatch
+
+    for source_file in sorted(root.rglob("*")):
+        if source_file.suffix not in SUPPORTED_EXTENSIONS:
+            continue
         # Check exclusions
-        rel = str(py_file.relative_to(root))
-        skip = False
-        for pattern in exclude_patterns:
-            # Simple glob matching
-            from fnmatch import fnmatch
-            if fnmatch(rel, pattern) or fnmatch(str(py_file), pattern):
-                skip = True
-                break
+        rel = str(source_file.relative_to(root))
+        skip = any(
+            fnmatch(rel, pat) or fnmatch(str(source_file), pat)
+            for pat in exclude_patterns
+        )
         if skip:
             continue
-        
+
         try:
-            fm = scan_file(str(py_file))
+            fm = scan_file(str(source_file))
             result.files.append(fm)
         except Exception as e:
             # Skip files that can't be read
-            print(f"Warning: skipping {py_file}: {e}", file=sys.stderr)
+            print(f"Warning: skipping {source_file}: {e}", file=sys.stderr)
     
     return result
 
