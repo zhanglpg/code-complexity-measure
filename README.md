@@ -152,7 +152,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: zhanglpg/code-complexity-measure@v1
+      - uses: zhanglpg/code-complexity-measure@main
         with:
           path: '.'
           fail-above: '8'
@@ -213,7 +213,7 @@ jobs:
 
       - name: Complexity Check
         id: complexity
-        uses: zhanglpg/code-complexity-measure@v1
+        uses: zhanglpg/code-complexity-measure@main
         with:
           path: 'src'
           threshold: '10'
