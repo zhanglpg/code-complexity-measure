@@ -24,14 +24,14 @@ jobs:
 
       # --- Minimal usage ---
       # - name: Complexity Check
-      #   uses: zhanglpg/code-complexity-measure@v1
+      #   uses: zhanglpg/code-complexity-measure@main
       #   with:
       #     path: 'src'
 
       # --- Full usage ---
       - name: Complexity Check
         id: complexity
-        uses: zhanglpg/code-complexity-measure@v1
+        uses: zhanglpg/code-complexity-measure@main
         with:
           path: '.'
           threshold: '10'          # Cognitive complexity hotspot threshold
