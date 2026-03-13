@@ -17,7 +17,7 @@ try:
     import tree_sitter_rust as tsrust
 
     RUST_LANGUAGE = ts.Language(tsrust.language())
-except ImportError:
+except (ImportError, ValueError):
     RUST_LANGUAGE = None
 
 
