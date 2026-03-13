@@ -55,6 +55,7 @@ NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * c
 | Python | libcst | included |
 | Go | tree-sitter-go | `pip install complexity-accounting[go]` |
 | Java | tree-sitter-java | `pip install complexity-accounting[java]` |
+| TypeScript | tree-sitter-typescript | `pip install complexity-accounting[ts]` |
 
 ## CLI Reference
 

@@ -310,8 +310,38 @@ class TestRealGitRepo:
         assert deltas["app.js"].status == "modified"
         assert deltas["app.js"].cognitive_delta > 0
 
-    def test_scan_directory_mixed_five_languages(self, tmp_git_repo):
-        """scan_directory picks up .py, .go, .java, .cpp, and .js files together."""
+    def test_compare_refs_ts_file(self, tmp_git_repo):
+        """compare_refs detects modified TypeScript files between real commits."""
+        from complexity_accounting.git_tracker import compare_refs
+
+        _commit_file(
+            tmp_git_repo, "app.ts",
+            "function run(): void {}\n",
+            "initial ts",
+        )
+        _git(tmp_git_repo, "tag", "v1")
+
+        _commit_file(
+            tmp_git_repo, "app.ts",
+            "function run(x: number): void {\n"
+            "    if (x > 0) {\n"
+            "        for (let i = 0; i < x; i++) {\n"
+            "            if (i > 5) { return; }\n"
+            "        }\n"
+            "    }\n"
+            "}\n",
+            "add ts complexity",
+        )
+        _git(tmp_git_repo, "tag", "v2")
+
+        report = compare_refs("v1", "v2", str(tmp_git_repo))
+        deltas = {d.path: d for d in report.file_deltas}
+        assert "app.ts" in deltas
+        assert deltas["app.ts"].status == "modified"
+        assert deltas["app.ts"].cognitive_delta > 0
+
+    def test_scan_directory_mixed_six_languages(self, tmp_git_repo):
+        """scan_directory picks up .py, .go, .java, .cpp, .js, and .ts files together."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "a.py").write_text("def foo(): pass\n")
@@ -327,8 +357,11 @@ class TestRealGitRepo:
             (Path(tmpdir) / "e.js").write_text(
                 "function quux() {}\n"
             )
+            (Path(tmpdir) / "f.ts").write_text(
+                "function corge(): void {}\n"
+            )
             result = scan_directory(tmpdir)
-            assert len(result.files) == 5
+            assert len(result.files) == 6
             names = set()
             for f in result.files:
                 for fn in f.functions:
@@ -338,6 +371,7 @@ class TestRealGitRepo:
             assert "baz" in names
             assert "qux" in names
             assert "quux" in names
+            assert "corge" in names
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +520,27 @@ class TestCLIWorkflow:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "app.js").write_text(
                 "function add(a, b) {\n"
+                "    return a + b;\n"
+                "}\n"
+            )
+            args = self._make_scan_args(path=tmpdir, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            data = json.loads(out.getvalue())
+            assert data["summary"]["total_functions"] >= 1
+            func_names = []
+            for f in data["files"]:
+                for fn in f.get("functions", []):
+                    func_names.append(fn["name"])
+            assert "add" in func_names
+
+    def test_cli_scan_ts_file(self, tmp_git_repo):
+        """cmd_scan produces valid JSON for a TypeScript file."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.ts").write_text(
+                "function add(a: number, b: number): number {\n"
                 "    return a + b;\n"
                 "}\n"
             )

@@ -209,3 +209,37 @@ requires_js = pytest.mark.skipif(
     not _has_tree_sitter_javascript(),
     reason="tree-sitter-javascript not installed",
 )
+
+
+@pytest.fixture
+def tmp_ts_file():
+    """Factory fixture: create temporary TypeScript files from source strings."""
+    paths = []
+
+    def _create(source):
+        fd, path = tempfile.mkstemp(suffix=".ts")
+        os.write(fd, textwrap.dedent(source).encode())
+        os.close(fd)
+        paths.append(path)
+        return path
+
+    yield _create
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+def _has_tree_sitter_typescript():
+    try:
+        import tree_sitter_typescript  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+requires_ts = pytest.mark.skipif(
+    not _has_tree_sitter_typescript(),
+    reason="tree-sitter-typescript not installed",
+)
