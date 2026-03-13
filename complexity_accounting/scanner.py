@@ -31,6 +31,24 @@ from libcst import metadata
 # Supported file extensions for scanning
 SUPPORTED_EXTENSIONS = {'.py', '.go', '.java', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx', '.rs'}
 
+# Map file extensions to canonical language names (for language-specific config)
+EXTENSION_LANGUAGE_MAP = {
+    '.py': 'python',
+    '.go': 'go',
+    '.java': 'java',
+    '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+    '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
+    '.c': 'cpp', '.cc': 'cpp', '.cpp': 'cpp', '.cxx': 'cpp',
+    '.h': 'cpp', '.hpp': 'cpp', '.hxx': 'cpp',
+    '.rs': 'rust',
+}
+
+
+def get_language(file_path: str) -> Optional[str]:
+    """Return the canonical language name for a file path, or None if unknown."""
+    ext = Path(file_path).suffix.lower()
+    return EXTENSION_LANGUAGE_MAP.get(ext)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,6 +171,31 @@ class ScanResult:
         """
         return self.compute_ncs()
 
+    def _compute_internals(self, config=None, churn_factor: float = 1.0, coupling_factor: float = 1.0):
+        """Shared computation of intermediate NCS values."""
+        if config is not None:
+            w_cog = config.weight_cognitive
+            w_cyc = config.weight_cyclomatic
+            model = config.ncs_model
+        else:
+            w_cog = 1.0
+            w_cyc = 0.0
+            model = "multiplicative"
+
+        avg_cog = self.total_cognitive / self.total_functions
+        avg_cyc = self.total_cyclomatic / self.total_functions
+
+        # Language-aware hotspot counting
+        hotspots = 0
+        for f in self.files:
+            lang = get_language(f.path)
+            t = config.get_hotspot_threshold(lang) if config else 10
+            hotspots += len(f.hotspots(t))
+        hotspot_ratio = hotspots / self.total_functions
+
+        base = w_cog * avg_cog + w_cyc * avg_cyc
+        return model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, churn_factor, coupling_factor
+
     def compute_ncs(
         self,
         config=None,
@@ -162,30 +205,102 @@ class ScanResult:
         """
         Compute Net Complexity Score with configurable weights and factors.
 
-        NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn * coupling
+        Multiplicative (default):
+          NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn * coupling
+
+        Additive:
+          NCS = w_cog * avg_cog + w_cyc * avg_cyc + w_hotspot * penalty + w_churn * penalty + w_coupling * penalty
 
         When called without arguments, produces the legacy cognitive-only result.
         """
         if self.total_functions == 0:
             return 0.0
 
-        if config is not None:
-            w_cog = config.weight_cognitive
-            w_cyc = config.weight_cyclomatic
-            threshold = config.hotspot_threshold
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf = (
+            self._compute_internals(config, churn_factor, coupling_factor)
+        )
+
+        if model == "additive" and config is not None:
+            hotspot_penalty = hotspot_ratio * 10
+            churn_penalty = (cf - 1.0) * 10
+            coupling_penalty = (cpf - 1.0) * 10
+            return round(
+                base
+                + config.weight_hotspot * hotspot_penalty
+                + config.weight_churn * churn_penalty
+                + config.weight_coupling * coupling_penalty,
+                2,
+            )
+
+        return round(base * (1 + hotspot_ratio) * cf * cpf, 2)
+
+    def compute_ncs_explained(
+        self,
+        config=None,
+        churn_factor: float = 1.0,
+        coupling_factor: float = 1.0,
+    ) -> Dict[str, Any]:
+        """
+        Compute NCS with a full breakdown of each factor's contribution.
+
+        Returns a dict with intermediate values and the dominant factor.
+        """
+        if self.total_functions == 0:
+            return {
+                "ncs": 0.0,
+                "model": "multiplicative",
+                "base_complexity": 0.0,
+                "avg_cognitive": 0.0,
+                "avg_cyclomatic": 0.0,
+                "hotspot_ratio": 0.0,
+                "churn_factor": churn_factor,
+                "coupling_factor": coupling_factor,
+                "hotspot_contribution": 0.0,
+                "churn_contribution": 0.0,
+                "coupling_contribution": 0.0,
+                "dominant_factor": "none",
+            }
+
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf = (
+            self._compute_internals(config, churn_factor, coupling_factor)
+        )
+
+        if model == "additive" and config is not None:
+            hotspot_contrib = config.weight_hotspot * (hotspot_ratio * 10)
+            churn_contrib = config.weight_churn * ((cf - 1.0) * 10)
+            coupling_contrib = config.weight_coupling * ((cpf - 1.0) * 10)
+            ncs = round(base + hotspot_contrib + churn_contrib + coupling_contrib, 2)
         else:
-            # Legacy defaults: cognitive-only
-            w_cog = 1.0
-            w_cyc = 0.0
-            threshold = 10
+            after_hotspot = base * (1 + hotspot_ratio)
+            after_churn = after_hotspot * cf
+            ncs = round(after_churn * cpf, 2)
+            hotspot_contrib = after_hotspot - base
+            churn_contrib = after_churn - after_hotspot
+            coupling_contrib = (after_churn * cpf) - after_churn
 
-        avg_cog = self.total_cognitive / self.total_functions
-        avg_cyc = self.total_cyclomatic / self.total_functions
-        hotspots = sum(len(f.hotspots(threshold)) for f in self.files)
-        hotspot_ratio = hotspots / self.total_functions
+        contribs = {
+            "hotspot": hotspot_contrib,
+            "churn": churn_contrib,
+            "coupling": coupling_contrib,
+        }
+        dominant = max(contribs, key=lambda k: abs(contribs[k]))
+        if all(v == 0 for v in contribs.values()):
+            dominant = "none"
 
-        base = w_cog * avg_cog + w_cyc * avg_cyc
-        return round(base * (1 + hotspot_ratio) * churn_factor * coupling_factor, 2)
+        return {
+            "ncs": ncs,
+            "model": model,
+            "base_complexity": round(base, 4),
+            "avg_cognitive": round(avg_cog, 4),
+            "avg_cyclomatic": round(avg_cyc, 4),
+            "hotspot_ratio": round(hotspot_ratio, 4),
+            "churn_factor": round(cf, 4),
+            "coupling_factor": round(cpf, 4),
+            "hotspot_contribution": round(hotspot_contrib, 4),
+            "churn_contribution": round(churn_contrib, 4),
+            "coupling_contribution": round(coupling_contrib, 4),
+            "dominant_factor": dominant,
+        }
     
     def to_dict(self) -> Dict[str, Any]:
         return {

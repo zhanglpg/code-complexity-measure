@@ -521,6 +521,193 @@ def test_scan_directory_error_handling():
             os.chmod(str(bad), 0o644)
 
 
+# ---------------------------------------------------------------------------
+# P3: Additive NCS model tests
+# ---------------------------------------------------------------------------
+
+def test_compute_ncs_additive_model():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config(ncs_model="additive", weight_cognitive=0.7, weight_cyclomatic=0.3)
+        ncs = result.compute_ncs(config, churn_factor=1.2, coupling_factor=1.5)
+        assert ncs > 0
+    finally:
+        os.unlink(path)
+
+
+def test_compute_ncs_additive_zero_functions():
+    from complexity_accounting.config import Config
+    result = ScanResult()
+    config = Config(ncs_model="additive")
+    assert result.compute_ncs(config) == 0.0
+
+
+def test_compute_ncs_additive_vs_multiplicative():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config_mult = Config(ncs_model="multiplicative")
+        config_add = Config(ncs_model="additive")
+        ncs_mult = result.compute_ncs(config_mult, churn_factor=1.2, coupling_factor=1.5)
+        ncs_add = result.compute_ncs(config_add, churn_factor=1.2, coupling_factor=1.5)
+        # With non-trivial factors, the two models should produce different results
+        assert ncs_mult != ncs_add
+        assert ncs_mult > 0
+        assert ncs_add > 0
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# P4: Language-specific defaults tests
+# ---------------------------------------------------------------------------
+
+def test_get_language_mapping():
+    from complexity_accounting.scanner import get_language
+    assert get_language("foo.py") == "python"
+    assert get_language("bar.ts") == "typescript"
+    assert get_language("baz.tsx") == "typescript"
+    assert get_language("main.go") == "go"
+    assert get_language("App.java") == "java"
+    assert get_language("index.js") == "javascript"
+    assert get_language("lib.rs") == "rust"
+    assert get_language("core.cpp") == "cpp"
+    assert get_language("unknown.xyz") is None
+
+
+def test_compute_ncs_language_specific_hotspot():
+    from complexity_accounting.config import Config
+    # Create a file with a function at cognitive=6 (above default threshold of 5 but below 15)
+    path = _write_temp("""
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        # With threshold=5, this function IS a hotspot
+        config_low = Config(hotspot_threshold=5)
+        ncs_low = result.compute_ncs(config_low)
+
+        # With a language override setting threshold=50, it should NOT be a hotspot
+        config_lang = Config(
+            hotspot_threshold=5,
+            language_overrides={"python": {"hotspot_threshold": 50}},
+        )
+        ncs_lang = result.compute_ncs(config_lang)
+
+        # The language override should reduce the hotspot penalty
+        assert ncs_lang <= ncs_low
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# P5: compute_ncs_explained tests
+# ---------------------------------------------------------------------------
+
+def test_compute_ncs_explained_multiplicative():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config()
+        exp = result.compute_ncs_explained(config, churn_factor=1.2, coupling_factor=1.1)
+        assert exp["model"] == "multiplicative"
+        assert exp["ncs"] == result.compute_ncs(config, churn_factor=1.2, coupling_factor=1.1)
+        assert exp["base_complexity"] > 0
+        assert "dominant_factor" in exp
+        assert exp["avg_cognitive"] > 0
+    finally:
+        os.unlink(path)
+
+
+def test_compute_ncs_explained_additive():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+
+        def complex_func(x, y):
+            if x:
+                if y:
+                    return True
+            return False
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config(ncs_model="additive")
+        exp = result.compute_ncs_explained(config, churn_factor=1.1, coupling_factor=1.2)
+        assert exp["model"] == "additive"
+        assert exp["ncs"] == result.compute_ncs(config, churn_factor=1.1, coupling_factor=1.2)
+    finally:
+        os.unlink(path)
+
+
+def test_compute_ncs_explained_zero_functions():
+    result = ScanResult()
+    exp = result.compute_ncs_explained()
+    assert exp["ncs"] == 0.0
+    assert exp["dominant_factor"] == "none"
+
+
+def test_compute_ncs_explained_dominant_factor():
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config()
+        # With high churn and no hotspots, churn should dominate
+        exp = result.compute_ncs_explained(config, churn_factor=2.0, coupling_factor=1.0)
+        # The dominant factor should be churn since hotspot_ratio is 0
+        assert exp["dominant_factor"] == "churn"
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     # Simple test runner
     import traceback

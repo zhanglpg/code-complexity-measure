@@ -33,6 +33,8 @@ def _make_scan_args(**overrides):
         churn_commits=None,
         no_churn=True,
         no_coupling=True,
+        ncs_model=None,
+        explain=False,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -341,6 +343,124 @@ def test_main_trend_routing():
         except SystemExit:
             pass
         mock_trend.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# --ncs-model tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_ncs_model_additive():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y):
+            if x:
+                if y:
+                    for i in range(10):
+                        if i > 5:
+                            return i
+            return 0
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, ncs_model="additive", json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "net_complexity_score" in result["summary"]
+        assert result["summary"]["ncs_model"] == "additive"
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_ncs_model_multiplicative_default():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert result["summary"]["ncs_model"] == "multiplicative"
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# --explain tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_explain_text():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y):
+            if x:
+                if y:
+                    return True
+            return False
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, explain=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "NCS Breakdown" in output
+        assert "Base complexity" in output
+        assert "Hotspot effect" in output
+        assert "Churn effect" in output
+        assert "Coupling effect" in output
+        assert "Final NCS" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_explain_json():
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y):
+            if x:
+                if y:
+                    return True
+            return False
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, explain=True, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "explanation" in result
+        exp = result["explanation"]
+        assert "ncs" in exp
+        assert "model" in exp
+        assert "base_complexity" in exp
+        assert "dominant_factor" in exp
+        assert "hotspot_contribution" in exp
+        assert "churn_contribution" in exp
+        assert "coupling_contribution" in exp
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_no_explain_json():
+    """Without --explain, JSON output should not contain explanation."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "explanation" not in result
+    finally:
+        os.unlink(path)
 
 
 # ---------------------------------------------------------------------------

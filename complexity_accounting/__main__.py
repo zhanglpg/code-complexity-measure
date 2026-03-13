@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 
-from .scanner import scan_file, scan_directory, ScanResult
+from .scanner import scan_file, scan_directory, ScanResult, get_language
 from .config import Config, load_config, merge_cli_overrides
 
 
@@ -36,6 +36,8 @@ def cmd_scan(args):
         overrides["churn_days"] = args.churn_days
     if args.churn_commits is not None:
         overrides["churn_commits"] = args.churn_commits
+    if args.ncs_model is not None:
+        overrides["ncs_model"] = args.ncs_model
     config = merge_cli_overrides(config, **overrides)
 
     # Scan
@@ -71,11 +73,21 @@ def cmd_scan(args):
 
     ncs = result.compute_ncs(config, churn_factor=churn_factor, coupling_factor=coupling_factor)
 
+    # Optionally compute explanation
+    explanation = None
+    if args.explain:
+        explanation = result.compute_ncs_explained(
+            config, churn_factor=churn_factor, coupling_factor=coupling_factor
+        )
+
     if args.json:
         output = result.to_dict()
         output["summary"]["net_complexity_score"] = ncs
         output["summary"]["churn_factor"] = round(churn_factor, 4)
         output["summary"]["coupling_factor"] = round(coupling_factor, 4)
+        output["summary"]["ncs_model"] = config.ncs_model
+        if explanation is not None:
+            output["explanation"] = explanation
         print(json.dumps(output, indent=2))
     else:
         # Human-readable summary
@@ -101,11 +113,39 @@ def cmd_scan(args):
         print(f"  Total functions:      {s['total_functions']}")
         print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}")
         print(f"  Hotspots (>={config.hotspot_threshold}):     {s['hotspot_count']}")
+        if config.ncs_model != "multiplicative":
+            print(f"  NCS model:            {config.ncs_model}")
         if churn_factor != 1.0:
             print(f"  Churn factor:         {churn_factor:.3f}")
         if coupling_factor != 1.0:
             print(f"  Coupling factor:      {coupling_factor:.3f}")
         print()
+
+        # Explain breakdown
+        if explanation is not None:
+            print(f"  NCS Breakdown ({explanation['model']}):")
+            print(f"  {'─' * 56}")
+            print(
+                f"    Base complexity:    {explanation['base_complexity']:7.2f}"
+                f"  ({config.weight_cognitive} * {explanation['avg_cognitive']:.2f} cog"
+                f" + {config.weight_cyclomatic} * {explanation['avg_cyclomatic']:.2f} cyc)"
+            )
+            print(
+                f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
+                f"  (ratio={explanation['hotspot_ratio']:.2f})"
+            )
+            print(
+                f"    Churn effect:      {explanation['churn_contribution']:+7.2f}"
+                f"  (factor={explanation['churn_factor']:.3f})"
+            )
+            print(
+                f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
+                f"  (factor={explanation['coupling_factor']:.3f})"
+            )
+            print(f"    Final NCS:         {explanation['ncs']:7.2f}")
+            if explanation['dominant_factor'] != "none":
+                print(f"    Dominant factor:    {explanation['dominant_factor']}")
+            print()
 
         # Top complex functions
         all_funcs = []
@@ -121,9 +161,9 @@ def cmd_scan(args):
             print(f"  {'─' * 56}")
             for fn in top:
                 risk = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
-                icon = risk.get(
-                    fn.get_risk_level(config.risk_low, config.risk_moderate, config.risk_high), "  "
-                )
+                lang = get_language(fn.file_path)
+                low, mod, high = config.get_risk_levels(lang)
+                icon = risk.get(fn.get_risk_level(low, mod, high), "  ")
                 # Shorten path for display
                 short_path = fn.file_path
                 if len(short_path) > 30:
@@ -209,6 +249,15 @@ def main():
     scan_p.add_argument("--churn-commits", type=int, default=None)
     scan_p.add_argument("--no-churn", action="store_true", help="Disable churn factor")
     scan_p.add_argument("--no-coupling", action="store_true", help="Disable coupling factor")
+    scan_p.add_argument(
+        "--ncs-model",
+        choices=["multiplicative", "additive"],
+        default=None,
+        help="NCS formula: multiplicative (default) or additive",
+    )
+    scan_p.add_argument(
+        "--explain", action="store_true", help="Show NCS factor breakdown"
+    )
     scan_p.set_defaults(func=cmd_scan)
 
     # compare

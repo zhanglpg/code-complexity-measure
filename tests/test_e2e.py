@@ -429,6 +429,8 @@ class TestCLIWorkflow:
             churn_commits=None,
             no_churn=True,
             no_coupling=True,
+            ncs_model=None,
+            explain=False,
         )
         defaults.update(overrides)
         return argparse.Namespace(**defaults)
