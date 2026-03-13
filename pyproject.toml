@@ -18,8 +18,9 @@ dependencies = [
 go = ["tree-sitter>=0.21.0", "tree-sitter-go>=0.21.0"]
 java = ["tree-sitter>=0.21.0", "tree-sitter-java>=0.21.0"]
 cpp = ["tree-sitter>=0.21.0", "tree-sitter-cpp>=0.21.0"]
+js = ["tree-sitter>=0.21.0", "tree-sitter-javascript>=0.21.0"]
 test = ["pytest>=7.0", "pytest-cov>=4.0"]
-dev = ["complexity-accounting[test,go,java,cpp]"]
+dev = ["complexity-accounting[test,go,java,cpp,js]"]
 
 [project.scripts]
 complexity-scan = "complexity_accounting.scanner:main"
@@ -37,6 +38,7 @@ markers = [
     "go: tests requiring tree-sitter-go",
     "java: tests requiring tree-sitter-java",
     "cpp: tests requiring tree-sitter-cpp",
+    "js: tests requiring tree-sitter-javascript",
 ]
 
 [tool.coverage.run]
