@@ -249,8 +249,39 @@ class TestRealGitRepo:
         assert deltas["App.java"].status == "modified"
         assert deltas["App.java"].cognitive_delta > 0
 
-    def test_scan_directory_mixed_three_languages(self, tmp_git_repo):
-        """scan_directory picks up .py, .go, and .java files together."""
+    def test_compare_refs_cpp_file(self, tmp_git_repo):
+        """compare_refs detects modified C++ files between real commits."""
+        from complexity_accounting.git_tracker import compare_refs
+
+        _commit_file(
+            tmp_git_repo, "app.cpp",
+            "int run() { return 0; }\n",
+            "initial cpp",
+        )
+        _git(tmp_git_repo, "tag", "v1")
+
+        _commit_file(
+            tmp_git_repo, "app.cpp",
+            "int run(int x) {\n"
+            "    if (x > 0) {\n"
+            "        for (int i = 0; i < x; i++) {\n"
+            "            if (i > 5) { return i; }\n"
+            "        }\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n",
+            "add cpp complexity",
+        )
+        _git(tmp_git_repo, "tag", "v2")
+
+        report = compare_refs("v1", "v2", str(tmp_git_repo))
+        deltas = {d.path: d for d in report.file_deltas}
+        assert "app.cpp" in deltas
+        assert deltas["app.cpp"].status == "modified"
+        assert deltas["app.cpp"].cognitive_delta > 0
+
+    def test_scan_directory_mixed_four_languages(self, tmp_git_repo):
+        """scan_directory picks up .py, .go, .java, and .cpp files together."""
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "a.py").write_text("def foo(): pass\n")
@@ -260,8 +291,11 @@ class TestRealGitRepo:
             (Path(tmpdir) / "C.java").write_text(
                 "public class C { public static void baz() {} }\n"
             )
+            (Path(tmpdir) / "d.cpp").write_text(
+                "int qux() { return 0; }\n"
+            )
             result = scan_directory(tmpdir)
-            assert len(result.files) == 3
+            assert len(result.files) == 4
             names = set()
             for f in result.files:
                 for fn in f.functions:
@@ -269,6 +303,7 @@ class TestRealGitRepo:
             assert "foo" in names
             assert "Bar" in names
             assert "baz" in names
+            assert "qux" in names
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +411,27 @@ class TestCLIWorkflow:
                 "    public static int add(int a, int b) {\n"
                 "        return a + b;\n"
                 "    }\n"
+                "}\n"
+            )
+            args = self._make_scan_args(path=tmpdir, json=True)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            data = json.loads(out.getvalue())
+            assert data["summary"]["total_functions"] >= 1
+            func_names = []
+            for f in data["files"]:
+                for fn in f.get("functions", []):
+                    func_names.append(fn["name"])
+            assert "add" in func_names
+
+    def test_cli_scan_cpp_file(self, tmp_git_repo):
+        """cmd_scan produces valid JSON for a C++ file."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "app.cpp").write_text(
+                "int add(int a, int b) {\n"
+                "    return a + b;\n"
                 "}\n"
             )
             args = self._make_scan_args(path=tmpdir, json=True)
