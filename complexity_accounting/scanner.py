@@ -29,7 +29,7 @@ import libcst as cst
 from libcst import metadata
 
 # Supported file extensions for scanning
-SUPPORTED_EXTENSIONS = {'.py', '.go', '.java'}
+SUPPORTED_EXTENSIONS = {'.py', '.go', '.java', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx'}
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +535,10 @@ def scan_file(file_path: str) -> FileMetrics:
     if path.suffix == '.java':
         from .java_parser import scan_java_file
         return scan_java_file(file_path)
+
+    if path.suffix in ('.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx'):
+        from .cpp_parser import scan_cpp_file
+        return scan_cpp_file(file_path)
 
     source = path.read_text(encoding="utf-8", errors="replace")
     

@@ -17,8 +17,9 @@ dependencies = [
 [project.optional-dependencies]
 go = ["tree-sitter>=0.21.0", "tree-sitter-go>=0.21.0"]
 java = ["tree-sitter>=0.21.0", "tree-sitter-java>=0.21.0"]
+cpp = ["tree-sitter>=0.21.0", "tree-sitter-cpp>=0.21.0"]
 test = ["pytest>=7.0", "pytest-cov>=4.0"]
-dev = ["complexity-accounting[test,go,java]"]
+dev = ["complexity-accounting[test,go,java,cpp]"]
 
 [project.scripts]
 complexity-scan = "complexity_accounting.scanner:main"
@@ -35,6 +36,7 @@ markers = [
     "e2e: end-to-end tests requiring git",
     "go: tests requiring tree-sitter-go",
     "java: tests requiring tree-sitter-java",
+    "cpp: tests requiring tree-sitter-cpp",
 ]
 
 [tool.coverage.run]
