@@ -38,13 +38,15 @@ def cmd_scan(args):
         overrides["churn_commits"] = args.churn_commits
     if args.ncs_model is not None:
         overrides["ncs_model"] = args.ncs_model
+    if getattr(args, "include_tests", False):
+        overrides["include_tests"] = True
     config = merge_cli_overrides(config, **overrides)
 
     # Scan
     if target.is_file():
         result = ScanResult(files=[scan_file(str(target))])
     elif target.is_dir():
-        result = scan_directory(str(target))
+        result = scan_directory(str(target), include_tests=config.include_tests)
     else:
         print(f"Error: {target} not found", file=sys.stderr)
         sys.exit(1)
@@ -56,7 +58,7 @@ def cmd_scan(args):
     if not args.no_coupling:
         try:
             from .coupling import analyze_directory_coupling, compute_coupling_factor
-            coupling_data = analyze_directory_coupling(str(target))
+            coupling_data = analyze_directory_coupling(str(target), include_tests=config.include_tests)
             coupling_factor = compute_coupling_factor(coupling_data)
         except Exception:
             pass  # graceful degradation
@@ -190,6 +192,7 @@ def cmd_compare(args):
         head_ref=args.head,
         repo_path=args.repo,
         changed_only=not args.full,
+        include_tests=getattr(args, "include_tests", False),
     )
 
     if args.json:
@@ -208,6 +211,7 @@ def cmd_trend(args):
         repo_path=args.repo,
         num_commits=args.commits,
         ref=args.ref,
+        include_tests=getattr(args, "include_tests", False),
     )
 
     if args.json:
@@ -258,6 +262,10 @@ def main():
     scan_p.add_argument(
         "--brief", action="store_true", help="Hide NCS factor breakdown (shown by default)"
     )
+    scan_p.add_argument(
+        "--include-tests", action="store_true",
+        help="Include test files in complexity scoring (excluded by default)",
+    )
     scan_p.set_defaults(func=cmd_scan)
 
     # compare
@@ -268,6 +276,10 @@ def main():
     cmp_p.add_argument("--json", action="store_true")
     cmp_p.add_argument("--markdown", action="store_true")
     cmp_p.add_argument("--full", action="store_true", help="Scan all files, not just changed")
+    cmp_p.add_argument(
+        "--include-tests", action="store_true",
+        help="Include test files in complexity scoring (excluded by default)",
+    )
     cmp_p.set_defaults(func=cmd_compare)
 
     # trend
@@ -276,6 +288,10 @@ def main():
     trend_p.add_argument("--commits", type=int, default=10, help="Number of commits")
     trend_p.add_argument("--ref", default="HEAD", help="Starting ref")
     trend_p.add_argument("--json", action="store_true")
+    trend_p.add_argument(
+        "--include-tests", action="store_true",
+        help="Include test files in complexity scoring (excluded by default)",
+    )
     trend_p.set_defaults(func=cmd_trend)
 
     args = parser.parse_args()

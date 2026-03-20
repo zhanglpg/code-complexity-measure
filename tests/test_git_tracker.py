@@ -302,7 +302,7 @@ def test_compare_refs_builds_deltas():
         fn_mod_base = FunctionMetrics("bar", "bar", "mod.py", 1, 5, cognitive_complexity=5, cyclomatic_complexity=2)
         fn_mod_head = FunctionMetrics("bar", "bar", "mod.py", 1, 5, cognitive_complexity=8, cyclomatic_complexity=3)
 
-        def scan_side_effect(ref, repo, files=None):
+        def scan_side_effect(ref, repo, files=None, include_tests=False):
             if ref == "main":
                 return {"mod.py": FileMetrics("mod.py", [fn_mod_base])}
             else:

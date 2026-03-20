@@ -31,6 +31,33 @@ from libcst import metadata
 # Supported file extensions for scanning
 SUPPORTED_EXTENSIONS = {'.py', '.go', '.java', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx', '.rs'}
 
+# Patterns for test files — excluded by default from complexity scoring.
+# Each pattern is listed with and without **/ prefix so fnmatch works
+# for both root-level and nested files.
+TEST_FILE_PATTERNS = [
+    "test_*", "**/test_*",
+    "*_test.py", "**/*_test.py",
+    "*_test.go", "**/*_test.go",
+    "*_test.rs", "**/*_test.rs",
+    "*_test.c", "**/*_test.c",
+    "*_test.cc", "**/*_test.cc",
+    "*_test.cpp", "**/*_test.cpp",
+    "*Test.java", "**/*Test.java",
+    "*Tests.java", "**/*Tests.java",
+    "*.test.js", "**/*.test.js",
+    "*.spec.js", "**/*.spec.js",
+    "*.test.mjs", "**/*.test.mjs",
+    "*.spec.mjs", "**/*.spec.mjs",
+    "*.test.ts", "**/*.test.ts",
+    "*.spec.ts", "**/*.spec.ts",
+    "*.test.tsx", "**/*.test.tsx",
+    "*.spec.tsx", "**/*.spec.tsx",
+    "*.test.mts", "**/*.test.mts",
+    "*.spec.mts", "**/*.spec.mts",
+    "tests/**", "**/tests/**",
+    "__tests__/**", "**/__tests__/**",
+]
+
 # Map file extensions to canonical language names (for language-specific config)
 EXTENSION_LANGUAGE_MAP = {
     '.py': 'python',
@@ -697,13 +724,15 @@ def scan_file(file_path: str) -> FileMetrics:
 def scan_directory(
     directory: str,
     exclude_patterns: Optional[List[str]] = None,
+    include_tests: bool = False,
 ) -> ScanResult:
     """
     Recursively scan all Python files in a directory.
-    
+
     Args:
         directory: Path to scan
         exclude_patterns: Glob patterns to exclude (e.g. ["**/test_*", "**/venv/**"])
+        include_tests: If False (default), test files are excluded from scanning
     """
     if exclude_patterns is None:
         exclude_patterns = [
@@ -711,10 +740,10 @@ def scan_directory(
             "**/__pycache__/**", "**/build/**", "**/dist/**",
             "**/.git/**", "**/migrations/**",
         ]
-    
+
     root = Path(directory)
     result = ScanResult()
-    
+
     from fnmatch import fnmatch
 
     for source_file in sorted(root.rglob("*")):
@@ -727,6 +756,9 @@ def scan_directory(
             for pat in exclude_patterns
         )
         if skip:
+            continue
+        # Exclude test files by default (checked against relative path only)
+        if not include_tests and any(fnmatch(rel, pat) for pat in TEST_FILE_PATTERNS):
             continue
 
         try:

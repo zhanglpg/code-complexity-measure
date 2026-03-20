@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from .scanner import scan_directory, scan_file, ScanResult, FileMetrics, SUPPORTED_EXTENSIONS
+from .scanner import scan_directory, scan_file, ScanResult, FileMetrics, SUPPORTED_EXTENSIONS, TEST_FILE_PATTERNS
 
 
 @dataclass
@@ -166,17 +166,26 @@ def get_changed_files(base_ref: str, head_ref: str, repo_path: str) -> Dict[str,
     return changes
 
 
-def scan_at_ref(ref: str, repo_path: str, files: Optional[List[str]] = None) -> Dict[str, FileMetrics]:
+def _is_test_file(rel_path: str) -> bool:
+    """Check if a relative file path matches any test file pattern."""
+    from fnmatch import fnmatch
+    return any(fnmatch(rel_path, pat) for pat in TEST_FILE_PATTERNS)
+
+
+def scan_at_ref(ref: str, repo_path: str, files: Optional[List[str]] = None, include_tests: bool = False) -> Dict[str, FileMetrics]:
     """
     Scan files at a specific git ref.
     Checks out files to a temp directory for scanning.
     """
     metrics = {}
-    
+
     if files is None:
         # Get all Python files at that ref
         output = _run_git(["ls-tree", "-r", "--name-only", ref], cwd=repo_path)
         files = [f for f in output.splitlines() if f.strip() and any(f.endswith(ext) for ext in SUPPORTED_EXTENSIONS)]
+
+    if not include_tests:
+        files = [f for f in files if not _is_test_file(f)]
     
     if not files:
         return metrics
@@ -204,6 +213,7 @@ def compare_refs(
     head_ref: str,
     repo_path: str,
     changed_only: bool = True,
+    include_tests: bool = False,
 ) -> DeltaReport:
     """
     Compare complexity between two git refs.
@@ -228,8 +238,8 @@ def compare_refs(
     base_files_to_scan = [f for f in files_to_scan if changes.get(f) != "A"]
     head_files_to_scan = [f for f in files_to_scan if changes.get(f) != "D"]
     
-    base_metrics = scan_at_ref(base_ref, repo_path, base_files_to_scan)
-    head_metrics = scan_at_ref(head_ref, repo_path, head_files_to_scan)
+    base_metrics = scan_at_ref(base_ref, repo_path, base_files_to_scan, include_tests=include_tests)
+    head_metrics = scan_at_ref(head_ref, repo_path, head_files_to_scan, include_tests=include_tests)
     
     # Build deltas
     all_paths = set(list(base_metrics.keys()) + list(head_metrics.keys()))
@@ -270,7 +280,7 @@ def compare_refs(
     )
 
 
-def trend(repo_path: str, num_commits: int = 10, ref: str = "HEAD") -> List[Dict[str, Any]]:
+def trend(repo_path: str, num_commits: int = 10, ref: str = "HEAD", include_tests: bool = False) -> List[Dict[str, Any]]:
     """
     Track complexity trend over the last N commits.
     Returns list of {commit, date, ncs, total_cognitive, total_functions}.
@@ -291,7 +301,7 @@ def trend(repo_path: str, num_commits: int = 10, ref: str = "HEAD") -> List[Dict
         msg = parts[2] if len(parts) > 2 else ""
         
         try:
-            metrics = scan_at_ref(sha, repo_path)
+            metrics = scan_at_ref(sha, repo_path, include_tests=include_tests)
             scan = ScanResult(files=list(metrics.values()))
             results.append({
                 "commit": sha[:8],
