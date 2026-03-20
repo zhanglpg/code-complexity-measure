@@ -168,6 +168,71 @@ def test_compute_coupling_factor_one_zero():
     assert factor == 1.5
 
 
+# ---------------------------------------------------------------------------
+# Coverage gap: star import early return (line 74)
+# ---------------------------------------------------------------------------
+
+def test_star_import_import_statement():
+    """'import *' style — ImportStar handling in visit_Import."""
+    path = _write_temp("""
+        from somelib import *
+        import requests
+    """)
+    try:
+        m = analyze_file_coupling(path)
+        # The star import is skipped; requests is counted
+        assert "requests" in m.imports
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: _dotted_name fallback (line 92)
+# ---------------------------------------------------------------------------
+
+def test_dotted_name_nested_attribute():
+    """Deep attribute import: from a.b.c import something."""
+    path = _write_temp("""
+        from a.b.c.d import something
+    """)
+    try:
+        m = analyze_file_coupling(path)
+        # a.b.c.d → top-level module is 'a'
+        assert isinstance(m, CouplingMetrics)
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: analyze_directory_coupling exclusion + error (lines 155, 158-159)
+# ---------------------------------------------------------------------------
+
+def test_directory_coupling_with_exclusion():
+    """Files matching exclude_patterns should be skipped."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from pathlib import Path
+
+        (Path(tmpdir) / "main.py").write_text("import requests\n")
+        (Path(tmpdir) / "test_something.py").write_text("import pytest\n")
+
+        data = analyze_directory_coupling(tmpdir, exclude_patterns=["test_*"])
+        assert "main.py" in data
+        assert "test_something.py" not in data
+
+
+def test_directory_coupling_skips_broken_files():
+    """Files that fail to parse should be skipped silently."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        from pathlib import Path
+
+        (Path(tmpdir) / "good.py").write_text("import requests\n")
+        (Path(tmpdir) / "bad.py").write_bytes(b"\x00\x01\x02\x03")
+
+        data = analyze_directory_coupling(tmpdir)
+        # Should have at least the good file
+        assert "good.py" in data
+
+
 if __name__ == "__main__":
     import traceback
 

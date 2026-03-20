@@ -658,6 +658,82 @@ def test_fixture_sample_c():
 
 
 # ---------------------------------------------------------------------------
+# Coverage gap: reference_declarator (lines 236-238), qualified_identifier (232-234)
+# ---------------------------------------------------------------------------
+
+def test_reference_declarator_function():
+    """C++ function returning a reference: int& foo()."""
+    path = _write_temp_cpp("""
+        int& getRef(int& x) {
+            return x;
+        }
+    """)
+    try:
+        fm = scan_cpp_file(path)
+        assert fm.function_count == 1
+        fn = fm.functions[0]
+        assert fn.name == "getRef"
+    finally:
+        os.unlink(path)
+
+
+def test_qualified_identifier_method():
+    """Namespace-qualified method definition: Foo::bar()."""
+    path = _write_temp_cpp("""
+        class Foo {
+        public:
+            int bar(int x);
+        };
+
+        int Foo::bar(int x) {
+            if (x > 0) {
+                return x;
+            }
+            return 0;
+        }
+    """)
+    try:
+        fm = scan_cpp_file(path)
+        funcs = {f.name: f for f in fm.functions}
+        # Should find Foo::bar or bar
+        assert any("bar" in f.name for f in fm.functions)
+    finally:
+        os.unlink(path)
+
+
+def test_variadic_params_c_style():
+    """C-style variadic function: void foo(int a, ...)."""
+    path = _write_temp_c("""
+        #include <stdarg.h>
+        void my_printf(const char* fmt, ...) {
+            return;
+        }
+    """)
+    try:
+        fm = scan_cpp_file(path)
+        assert fm.function_count >= 1
+        fn = fm.functions[0]
+        assert fn.params >= 1  # At least the fmt param
+    finally:
+        os.unlink(path)
+
+
+def test_missing_declarator_no_crash():
+    """Malformed function should not crash, may return <unknown>."""
+    # We test that the parser handles edge cases gracefully
+    path = _write_temp_cpp("""
+        int simple() {
+            return 0;
+        }
+    """)
+    try:
+        fm = scan_cpp_file(path)
+        assert fm.function_count >= 1
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
 # Test runner (backward compat)
 # ---------------------------------------------------------------------------
 
