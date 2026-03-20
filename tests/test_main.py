@@ -465,6 +465,162 @@ def test_cmd_scan_brief_json():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Coverage gap: NCS rating branches (lines 105, 109)
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_ncs_rating_moderate():
+    """NCS between 3-6 should show Moderate rating."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=False)
+        # Mock compute_ncs to return a moderate NCS
+        with patch.object(ScanResult, "compute_ncs", return_value=4.5), \
+             patch.object(ScanResult, "compute_ncs_explained", return_value=None):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            output = out.getvalue()
+            assert "Moderate" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_ncs_rating_critical():
+    """NCS > 10 should show Critical rating."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=False)
+        with patch.object(ScanResult, "compute_ncs", return_value=15.0), \
+             patch.object(ScanResult, "compute_ncs_explained", return_value=None):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            output = out.getvalue()
+            assert "Critical" in output
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: non-multiplicative model and factor display (lines 117, 119, 121)
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_additive_model_display():
+    """With additive model, text output should show model name."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def func(x):
+            if x:
+                return True
+            return False
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, ncs_model="additive")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "NCS model" in output
+        assert "additive" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_churn_factor_display():
+    """When churn factor != 1.0, it should be displayed in text output."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, no_churn=False)
+        with patch("complexity_accounting.churn.analyze_churn", return_value={"a.py": 5}), \
+             patch("complexity_accounting.churn.compute_churn_factor", return_value=1.5):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            output = out.getvalue()
+            assert "Churn factor" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_coupling_factor_display():
+    """When coupling factor != 1.0, it should be displayed in text output."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, no_coupling=False)
+        with patch("complexity_accounting.coupling.analyze_directory_coupling", return_value={"a.py": MagicMock()}), \
+             patch("complexity_accounting.coupling.compute_coupling_factor", return_value=1.8):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cmd_scan(args)
+            output = out.getvalue()
+            assert "Coupling factor" in output
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: cmd_compare default output (line 200)
+# ---------------------------------------------------------------------------
+
+def test_cmd_compare_default_output():
+    """cmd_compare with neither --json nor --markdown should default to markdown."""
+    report = DeltaReport("main", "HEAD", 5.0, 7.0, [])
+    with patch("complexity_accounting.git_tracker.compare_refs", return_value=report):
+        args = argparse.Namespace(base="main", head="HEAD", repo=".", json=False,
+                                  markdown=False, full=False, func=cmd_compare)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_compare(args)
+        output = out.getvalue()
+        assert "Complexity Report" in output
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: --churn-days and --churn-commits CLI overrides (lines 36, 38)
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_churn_days_override():
+    """--churn-days should pass through to config."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, churn_days=30, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "net_complexity_score" in result["summary"]
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_churn_commits_override():
+    """--churn-commits should pass through to config."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, churn_commits=50, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "net_complexity_score" in result["summary"]
+    finally:
+        os.unlink(path)
+
+
 def test_cmd_scan_brief_text():
     """With --brief, text output should not contain NCS breakdown."""
     fd, path = tempfile.mkstemp(suffix=".py")

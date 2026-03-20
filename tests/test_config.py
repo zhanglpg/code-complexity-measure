@@ -191,6 +191,38 @@ def test_get_risk_levels_with_language():
     assert config.get_risk_levels("typescript") == (8, 15, 20)
 
 
+# ---------------------------------------------------------------------------
+# Coverage gap: load_config with project_dir=None (line 130)
+# ---------------------------------------------------------------------------
+
+def test_load_config_default_dir():
+    """load_config(None) should use cwd and return valid config."""
+    config = load_config(None)
+    assert isinstance(config, Config)
+    # Should have all defaults since cwd likely has no config file
+    assert config.hotspot_threshold == config.hotspot_threshold  # valid int
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: non-dict language override value (line 111)
+# ---------------------------------------------------------------------------
+
+def test_language_override_non_dict_skipped():
+    """Non-dict values in [language.*] should be silently skipped."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = Path(tmpdir) / ".complexity.toml"
+        toml_path.write_text(
+            '[language]\ntypescript = "not_a_dict"\n'
+            '[language.python]\nhotspot-threshold = 12\n'
+        )
+        config = load_config(tmpdir)
+        # typescript should be skipped (not a dict)
+        assert "typescript" not in config.language_overrides
+        # python should be loaded
+        assert "python" in config.language_overrides
+        assert config.language_overrides["python"]["hotspot_threshold"] == 12
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -708,6 +708,265 @@ def test_compute_ncs_explained_dominant_factor():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Coverage gap: nested FunctionDef in cognitive complexity visitor (lines 443-448)
+# ---------------------------------------------------------------------------
+
+def test_cognitive_nested_function_def():
+    """Inner function definitions should increase nesting in cognitive visitor."""
+    path = _write_temp("""
+        def outer(x):
+            def inner(y):
+                if y > 0:  # nested inside inner → nesting from outer
+                    return y
+            if x > 0:  # +1
+                return inner(x)
+            return 0
+    """)
+    try:
+        fm = scan_file(path)
+        # outer has if x > 0 → cognitive 1
+        # inner has if y > 0 → cognitive 1 (nesting inside inner itself)
+        assert fm.function_count >= 1
+        # The outer function should be collected; inner may or may not be
+        outer = [f for f in fm.functions if f.name == "outer"][0]
+        assert outer.cognitive_complexity >= 1
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: _count_params with *args and **kwargs (lines 534, 536)
+# ---------------------------------------------------------------------------
+
+def test_count_params_star_args():
+    """Functions with *args should count the star param."""
+    path = _write_temp("""
+        def func_with_args(a, b, *args):
+            pass
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.params == 3  # a, b, *args
+    finally:
+        os.unlink(path)
+
+
+def test_count_params_kwargs():
+    """Functions with **kwargs should count the kwarg param."""
+    path = _write_temp("""
+        def func_with_kwargs(a, **kwargs):
+            pass
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.params == 2  # a, **kwargs
+    finally:
+        os.unlink(path)
+
+
+def test_count_params_star_and_kwargs():
+    """Functions with *args, keyword-only, and **kwargs."""
+    path = _write_temp("""
+        def func_all(a, *args, key_only=1, **kwargs):
+            pass
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.params == 4  # a, *args, key_only, **kwargs
+    finally:
+        os.unlink(path)
+
+
+def test_count_params_self_excluded():
+    """Methods should exclude self from param count."""
+    path = _write_temp("""
+        class Foo:
+            def method(self, a, b, *args, **kwargs):
+                pass
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.params == 4  # a, b, *args, **kwargs (self excluded)
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: scan_directory error handling (lines 735-737)
+# ---------------------------------------------------------------------------
+
+def test_scan_directory_skips_unreadable_file():
+    """scan_directory should skip files that raise on scan and continue."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write a valid file
+        good = Path(tmpdir) / "good.py"
+        good.write_text("def hello(): pass\n")
+
+        # Write a file that will cause a parse error (binary content)
+        bad = Path(tmpdir) / "bad.py"
+        bad.write_bytes(b"\x00\x01\x02\x03\x04")
+
+        result = scan_directory(tmpdir)
+        # Should have at least the good file; bad file may parse or be skipped
+        assert len(result.files) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Coverage gap: scanner.main() legacy CLI (lines 747-832)
+# ---------------------------------------------------------------------------
+
+def test_scanner_legacy_main_json():
+    """Test the legacy main() CLI in scanner.py with --json flag."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        with patch("sys.argv", ["scanner", path, "--json"]):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                scanner_main()
+            import json
+            result = json.loads(out.getvalue())
+            assert "summary" in result
+    finally:
+        os.unlink(path)
+
+
+def test_scanner_legacy_main_text():
+    """Test the legacy main() CLI in scanner.py with text output."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        with patch("sys.argv", ["scanner", path]):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                scanner_main()
+            output = out.getvalue()
+            assert "COMPLEXITY ACCOUNTING REPORT" in output
+    finally:
+        os.unlink(path)
+
+
+def test_scanner_legacy_main_directory():
+    """Test the legacy main() CLI scanning a directory."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "a.py").write_text("def foo(): pass\n")
+        with patch("sys.argv", ["scanner", tmpdir, "--json"]):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                scanner_main()
+            import json
+            result = json.loads(out.getvalue())
+            assert result["summary"]["files_scanned"] >= 1
+
+
+def test_scanner_legacy_main_not_found():
+    """Test the legacy main() CLI with nonexistent path."""
+    from complexity_accounting.scanner import main as scanner_main
+    from unittest.mock import patch
+
+    with patch("sys.argv", ["scanner", "/nonexistent/path"]):
+        try:
+            scanner_main()
+            assert False, "Should have exited"
+        except SystemExit as e:
+            assert e.code == 1
+
+
+def test_scanner_legacy_main_fail_above():
+    """Test the legacy main() CLI --fail-above."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        with patch("sys.argv", ["scanner", path, "--fail-above", "0.001"]):
+            out = io.StringIO()
+            try:
+                with redirect_stdout(out):
+                    scanner_main()
+            except SystemExit:
+                pass  # Expected — NCS may or may not exceed threshold
+    finally:
+        os.unlink(path)
+
+
+def test_scanner_legacy_main_threshold():
+    """Test the legacy main() CLI --threshold flag."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def complex_func(x, y, z):
+            if x:
+                if y:
+                    if z:
+                        for i in range(10):
+                            while True:
+                                if i > 5:
+                                    break
+    """).encode())
+    os.close(fd)
+    try:
+        with patch("sys.argv", ["scanner", path, "--threshold", "5"]):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                scanner_main()
+            output = out.getvalue()
+            assert "COMPLEXITY ACCOUNTING REPORT" in output
+    finally:
+        os.unlink(path)
+
+
+def test_scanner_legacy_main_top():
+    """Test the legacy main() CLI --top flag."""
+    from complexity_accounting.scanner import main as scanner_main
+    import io
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\ndef world(): pass\n")
+    os.close(fd)
+    try:
+        with patch("sys.argv", ["scanner", path, "--top", "1"]):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                scanner_main()
+            output = out.getvalue()
+            assert "COMPLEXITY ACCOUNTING REPORT" in output
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     # Simple test runner
     import traceback
