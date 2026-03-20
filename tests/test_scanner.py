@@ -506,6 +506,56 @@ def test_scan_directory_custom_exclusion():
         assert not any("test_foo" in p for p in paths)
 
 
+def test_scan_directory_excludes_test_files_by_default():
+    """Test files matching common test patterns are excluded by default."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "app.py").write_text("def app(): pass\n")
+        (Path(tmpdir) / "test_app.py").write_text("def test_app(): pass\n")
+        (Path(tmpdir) / "utils_test.py").write_text("def test_utils(): pass\n")
+        tests_dir = Path(tmpdir) / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "conftest.py").write_text("def fixture(): pass\n")
+
+        result = scan_directory(tmpdir)
+        paths = [f.path for f in result.files]
+        assert any("app.py" in p for p in paths)
+        assert not any("test_app.py" in p for p in paths)
+        assert not any("utils_test.py" in p for p in paths)
+        assert not any("conftest.py" in p for p in paths)
+
+
+def test_scan_directory_includes_test_files_when_flag_set():
+    """With include_tests=True, test files are included."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "app.py").write_text("def app(): pass\n")
+        (Path(tmpdir) / "test_app.py").write_text("def test_app(): pass\n")
+
+        result = scan_directory(tmpdir, include_tests=True)
+        paths = [f.path for f in result.files]
+        assert any("app.py" in p for p in paths)
+        assert any("test_app.py" in p for p in paths)
+
+
+def test_scan_directory_excludes_multi_language_test_files():
+    """Test file exclusion works across supported languages."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "app.go").write_text("package main\nfunc main() {}\n")
+        (Path(tmpdir) / "app_test.go").write_text("package main\nfunc TestApp() {}\n")
+        (Path(tmpdir) / "App.java").write_text("class App { void run() {} }\n")
+        (Path(tmpdir) / "AppTest.java").write_text("class AppTest { void testRun() {} }\n")
+        (Path(tmpdir) / "app.js").write_text("function app() {}\n")
+        (Path(tmpdir) / "app.test.js").write_text("function testApp() {}\n")
+
+        result = scan_directory(tmpdir)
+        paths = [f.path for f in result.files]
+        assert any("app.go" in p and "test" not in p for p in paths)
+        assert not any("app_test.go" in p for p in paths)
+        assert any("App.java" in p for p in paths)
+        assert not any("AppTest.java" in p for p in paths)
+        assert any("app.js" in p and "test" not in p for p in paths)
+        assert not any("app.test.js" in p for p in paths)
+
+
 def test_scan_directory_error_handling():
     with tempfile.TemporaryDirectory() as tmpdir:
         good = Path(tmpdir) / "good.py"

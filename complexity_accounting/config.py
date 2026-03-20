@@ -46,6 +46,9 @@ class Config:
     churn_days: int = 90
     churn_commits: int = 100
 
+    # Include test files in complexity scoring (default: exclude)
+    include_tests: bool = False
+
     # Language-specific overrides: {"typescript": {"risk_low": 8, ...}, ...}
     language_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
@@ -81,6 +84,7 @@ _KEY_MAP = {
     "weight-coupling": "weight_coupling",
     "churn-days": "churn_days",
     "churn-commits": "churn_commits",
+    "include-tests": "include_tests",
 }
 
 

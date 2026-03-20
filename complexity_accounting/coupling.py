@@ -128,9 +128,11 @@ def analyze_file_coupling(file_path: str) -> CouplingMetrics:
 def analyze_directory_coupling(
     directory: str,
     exclude_patterns: Optional[List[str]] = None,
+    include_tests: bool = False,
 ) -> Dict[str, CouplingMetrics]:
     """Analyze coupling for all Python files in a directory."""
     from fnmatch import fnmatch
+    from .scanner import TEST_FILE_PATTERNS
 
     if exclude_patterns is None:
         exclude_patterns = [
@@ -152,6 +154,8 @@ def analyze_directory_coupling(
             for pat in exclude_patterns
         )
         if skip:
+            continue
+        if not include_tests and any(fnmatch(rel, pat) for pat in TEST_FILE_PATTERNS):
             continue
         try:
             results[rel] = analyze_file_coupling(str(py_file))

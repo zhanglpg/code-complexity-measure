@@ -223,6 +223,29 @@ def test_language_override_non_dict_skipped():
         assert config.language_overrides["python"]["hotspot_threshold"] == 12
 
 
+def test_default_config_excludes_tests():
+    """Default config has include_tests=False."""
+    config = Config()
+    assert config.include_tests is False
+
+
+def test_include_tests_from_toml():
+    """include-tests can be set in .complexity.toml."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = Path(tmpdir) / ".complexity.toml"
+        toml_path.write_text('include-tests = true\n')
+        config = load_config(tmpdir)
+        assert config.include_tests is True
+
+
+def test_include_tests_cli_override():
+    """include_tests can be set via CLI override."""
+    config = Config()
+    assert config.include_tests is False
+    config = merge_cli_overrides(config, include_tests=True)
+    assert config.include_tests is True
+
+
 if __name__ == "__main__":
     import traceback
 
