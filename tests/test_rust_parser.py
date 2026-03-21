@@ -560,6 +560,88 @@ def test_impl_multiple_methods():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+@requires_rust
+def test_boolean_same_operator_chain():
+    """a && b && c should be +1 (same operator chain)."""
+    path = _write_temp_rs("""
+        fn check(a: bool, b: bool, c: bool) -> bool {
+            if a && b && c {
+                return true;
+            }
+            false
+        }
+    """)
+    try:
+        fm = scan_rust_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 2  # if + &&-chain
+    finally:
+        os.unlink(path)
+
+
+@requires_rust
+def test_boolean_mixed_operators():
+    """a && b || c should be +2 (operator change)."""
+    path = _write_temp_rs("""
+        fn check(a: bool, b: bool, c: bool) -> bool {
+            if a && b || c {
+                return true;
+            }
+            false
+        }
+    """)
+    try:
+        fm = scan_rust_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+@requires_rust
+def test_boolean_three_switches():
+    """a && b || c && d should be +3."""
+    path = _write_temp_rs("""
+        fn check(a: bool, b: bool, c: bool, d: bool) -> bool {
+            if a && b || c && d {
+                return true;
+            }
+            false
+        }
+    """)
+    try:
+        fm = scan_rust_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+@requires_rust
+def test_maintainability_index_computed():
+    """Rust functions should have MI computed."""
+    path = _write_temp_rs("""
+        fn simple() -> i32 {
+            1
+        }
+    """)
+    try:
+        fm = scan_rust_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 0
+        assert fn.maintainability_index <= 100
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -527,6 +527,128 @@ def test_pointer_receiver_method():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+def test_boolean_same_operator_chain():
+    """a && b && c should be +1 (same operator chain)."""
+    path = _write_temp_go("""
+        package main
+
+        func Check(a, b, c bool) bool {
+            if a && b && c {
+                return true
+            }
+            return false
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        # if: +1, &&-chain: +1 = 2
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_mixed_operators():
+    """a && b || c should be +2 (operator change)."""
+    path = _write_temp_go("""
+        package main
+
+        func Check(a, b, c bool) bool {
+            if a && b || c {
+                return true
+            }
+            return false
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        # if: +1, &&: +1, || (switch): +1 = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_three_switches():
+    """a && b || c && d should be +3."""
+    path = _write_temp_go("""
+        package main
+
+        func Check(a, b, c, d bool) bool {
+            if a && b || c && d {
+                return true
+            }
+            return false
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        # if: +1, &&: +1, || (switch): +1, && (switch): +1 = 4
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def test_maintainability_index_computed():
+    """Go functions should have MI computed."""
+    path = _write_temp_go("""
+        package main
+
+        func Simple() int {
+            return 1
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 0
+        assert fn.maintainability_index <= 100
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_decreases_with_complexity():
+    """More complex functions should have lower MI."""
+    path = _write_temp_go("""
+        package main
+
+        func Simple() int {
+            return 1
+        }
+
+        func Complex(x, y, z int) int {
+            if x > 0 {
+                if y > 0 {
+                    for i := 0; i < z; i++ {
+                        if i > 5 {
+                            if x > y {
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+            return 0
+        }
+    """)
+    try:
+        fm = scan_go_file(path)
+        simple = fm.functions[0]
+        complex_fn = fm.functions[1]
+        assert simple.maintainability_index > complex_fn.maintainability_index
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     import traceback
 

@@ -246,6 +246,35 @@ def test_include_tests_cli_override():
     assert config.include_tests is True
 
 
+# ---------------------------------------------------------------------------
+# Maintainability Index config
+# ---------------------------------------------------------------------------
+
+def test_weight_mi_default():
+    """weight_mi defaults to 0.1."""
+    config = Config()
+    assert config.weight_mi == 0.1
+
+
+def test_weight_mi_cli_override():
+    """weight_mi can be overridden via CLI."""
+    config = Config()
+    config = merge_cli_overrides(config, weight_mi=0.3)
+    assert config.weight_mi == 0.3
+
+
+def test_weight_mi_from_toml():
+    """weight-mi key is mapped correctly from TOML."""
+    import tempfile
+    config = Config()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        toml_path = os.path.join(tmpdir, ".complexity.toml")
+        with open(toml_path, "w") as f:
+            f.write('weight-mi = 0.25\n')
+        loaded = load_config(tmpdir)
+        assert loaded.weight_mi == 0.25
+
+
 if __name__ == "__main__":
     import traceback
 
