@@ -106,17 +106,24 @@ def walk_node(node, visitor):
 # Maintainability Index
 # ---------------------------------------------------------------------------
 
-def compute_mi(nloc: int, cyclomatic: int) -> float:
+def compute_mi(nloc: int, cyclomatic: int, halstead_volume: Optional[float] = None) -> float:
     """
-    Compute Maintainability Index (simplified SEI/Visual Studio formula).
+    Compute Maintainability Index.
 
-    MI = max(0, min(100, (171 - 21.4 * ln(nloc) - 0.23 * cyclomatic) * 100 / 171))
+    When halstead_volume is provided, uses the full SEI formula:
+      MI = max(0, min(100, (171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)) * 100/171))
+
+    Otherwise falls back to the simplified Visual Studio formula:
+      MI = max(0, min(100, (171 - 21.4*ln(LOC) - 0.23*CC) * 100/171))
 
     Scale: 0-100, higher is more maintainable.
     """
     if nloc <= 0:
         return 100.0
-    raw = 171.0 - 21.4 * math.log(nloc) - 0.23 * cyclomatic
+    if halstead_volume is not None and halstead_volume > 0:
+        raw = 171.0 - 5.2 * math.log(halstead_volume) - 0.23 * cyclomatic - 16.2 * math.log(nloc)
+    else:
+        raw = 171.0 - 21.4 * math.log(nloc) - 0.23 * cyclomatic
     return round(max(0.0, min(100.0, raw * 100.0 / 171.0)), 2)
 
 
@@ -137,6 +144,7 @@ class FunctionMetrics:
     params: int = 0
     max_nesting: int = 0
     maintainability_index: float = 100.0
+    halstead_volume: Optional[float] = None
     
     @property
     def risk_level(self) -> str:
@@ -156,9 +164,43 @@ class FunctionMetrics:
 
 
 @dataclass
+class ClassMetrics:
+    """Per-class metrics: WMC (Weighted Methods per Class), method count, total complexity."""
+    name: str
+    file_path: str
+    line: int
+    end_line: int
+    methods: List[FunctionMetrics] = field(default_factory=list)
+
+    @property
+    def method_count(self) -> int:
+        return len(self.methods)
+
+    @property
+    def total_cognitive(self) -> int:
+        return sum(m.cognitive_complexity for m in self.methods)
+
+    @property
+    def total_cyclomatic(self) -> int:
+        return sum(m.cyclomatic_complexity for m in self.methods)
+
+    @property
+    def wmc(self) -> int:
+        """Weighted Methods per Class = sum of cyclomatic complexities."""
+        return self.total_cyclomatic
+
+    @property
+    def avg_method_complexity(self) -> float:
+        if not self.methods:
+            return 0.0
+        return self.total_cognitive / len(self.methods)
+
+
+@dataclass
 class FileMetrics:
     path: str
     functions: List[FunctionMetrics] = field(default_factory=list)
+    classes: List[ClassMetrics] = field(default_factory=list)
     total_lines: int = 0
     code_lines: int = 0
     comment_lines: int = 0
@@ -402,6 +444,20 @@ class ScanResult:
                     "avg_cognitive": round(fm.avg_cognitive, 2),
                     "max_cognitive": fm.max_cognitive,
                     "functions": [asdict(fn) for fn in fm.functions],
+                    "classes": [
+                        {
+                            "name": cls.name,
+                            "file_path": cls.file_path,
+                            "line": cls.line,
+                            "end_line": cls.end_line,
+                            "method_count": cls.method_count,
+                            "wmc": cls.wmc,
+                            "total_cognitive": cls.total_cognitive,
+                            "total_cyclomatic": cls.total_cyclomatic,
+                            "avg_method_complexity": round(cls.avg_method_complexity, 2),
+                        }
+                        for cls in fm.classes
+                    ],
                 }
                 for fm in self.files
             ],
@@ -596,11 +652,14 @@ class FunctionCollector(cst.CSTVisitor):
     """
     Visits a module and collects metrics for each function/method.
     """
-    
+
     def __init__(self, file_path: str):
         self.file_path = file_path
         self.functions: List[FunctionMetrics] = []
+        self.classes: List[ClassMetrics] = []
         self._class_stack: List[str] = []
+        self._class_methods_stack: List[List[FunctionMetrics]] = []
+        self._class_nodes_stack: List[cst.ClassDef] = []
         self._wrapper = None  # holds the wrapper for position info
     
     def set_wrapper(self, wrapper):
@@ -637,10 +696,23 @@ class FunctionCollector(cst.CSTVisitor):
     
     def visit_ClassDef(self, node: cst.ClassDef) -> Optional[bool]:
         self._class_stack.append(node.name.value)
+        self._class_methods_stack.append([])
+        self._class_nodes_stack.append(node)
         return True
-    
+
     def leave_ClassDef(self, node: cst.ClassDef) -> None:
-        self._class_stack.pop()
+        class_name = self._class_stack.pop()
+        methods = self._class_methods_stack.pop()
+        self._class_nodes_stack.pop()
+        line = self._get_line(node)
+        end_line = self._get_end_line(node)
+        self.classes.append(ClassMetrics(
+            name=class_name,
+            file_path=self.file_path,
+            line=line,
+            end_line=end_line,
+            methods=methods,
+        ))
     
     def visit_FunctionDef(self, node: cst.FunctionDef) -> Optional[bool]:
         name = node.name.value
@@ -662,6 +734,17 @@ class FunctionCollector(cst.CSTVisitor):
         end_line = self._get_end_line(node)
         nloc = max(end_line - line + 1, 0)
         
+        # Compute Halstead metrics for improved MI
+        halstead_vol = None
+        try:
+            from .halstead import compute_halstead_python
+            module = self._wrapper.module
+            func_source = module.code_for_node(node)
+            h = compute_halstead_python(func_source)
+            halstead_vol = h.volume if h.volume > 0 else None
+        except Exception:
+            pass
+
         fm = FunctionMetrics(
             name=name,
             qualified_name=qualified,
@@ -673,10 +756,15 @@ class FunctionCollector(cst.CSTVisitor):
             nloc=nloc,
             params=self._count_params(node.params),
             max_nesting=cog_visitor.max_nesting,
-            maintainability_index=compute_mi(nloc, cyc_visitor.complexity),
+            maintainability_index=compute_mi(nloc, cyc_visitor.complexity, halstead_vol),
+            halstead_volume=halstead_vol,
         )
         self.functions.append(fm)
-        
+
+        # Track methods within class context
+        if self._class_methods_stack:
+            self._class_methods_stack[-1].append(fm)
+
         # Don't descend into nested functions for top-level collection
         # (they're handled by the cognitive visitor internally)
         return False
@@ -730,11 +818,47 @@ def count_lines(source: str) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Caching
+# ---------------------------------------------------------------------------
+
+# Module-level cache instance, set by scan_directory or externally
+_active_cache = None
+
+
+def set_cache(cache):
+    """Set the active cache instance for scan operations."""
+    global _active_cache
+    _active_cache = cache
+
+
+def get_cache():
+    """Get the active cache instance."""
+    return _active_cache
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def scan_file(file_path: str) -> FileMetrics:
     """Scan a single source file and return its metrics."""
+    # Check cache first
+    if _active_cache is not None:
+        cached = _active_cache.get(file_path)
+        if cached is not None:
+            return cached
+
+    result = _scan_file_uncached(file_path)
+
+    # Store in cache
+    if _active_cache is not None:
+        _active_cache.put(file_path, result)
+
+    return result
+
+
+def _scan_file_uncached(file_path: str) -> FileMetrics:
+    """Scan a single source file without cache lookup."""
     path = Path(file_path)
 
     if path.suffix == '.go':
@@ -761,6 +885,16 @@ def scan_file(file_path: str) -> FileMetrics:
         from .rust_parser import scan_rust_file
         return scan_rust_file(file_path)
 
+    # Check for plugin support for unknown extensions
+    if path.suffix != '.py' and path.suffix not in SUPPORTED_EXTENSIONS:
+        try:
+            from .plugin import get_plugin_for_extension
+            plugin = get_plugin_for_extension(path.suffix)
+            if plugin is not None:
+                return plugin.scan_file(file_path)
+        except Exception:
+            pass
+
     source = path.read_text(encoding="utf-8", errors="replace")
     
     total, code, comment, blank = count_lines(source)
@@ -768,19 +902,22 @@ def scan_file(file_path: str) -> FileMetrics:
     try:
         tree = cst.parse_module(source)
         wrapper = metadata.MetadataWrapper(tree)
-        
+
         collector = FunctionCollector(str(path))
         collector.set_wrapper(wrapper)
         wrapper.visit(collector)
-        
+
         functions = collector.functions
+        classes = collector.classes
     except cst.ParserSyntaxError:
         # If file can't be parsed, return what we can
         functions = []
-    
+        classes = []
+
     return FileMetrics(
         path=str(path),
         functions=functions,
+        classes=classes,
         total_lines=total,
         code_lines=code,
         comment_lines=comment,

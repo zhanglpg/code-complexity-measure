@@ -44,6 +44,9 @@ class JavaParser(TreeSitterParser):
     extra_increment_types = frozenset({"ternary_expression"})
     lambda_types = frozenset({"lambda_expression"})
 
+    # Class-level metrics
+    class_node_types = frozenset({"class_declaration", "interface_declaration", "enum_declaration"})
+
     # Cyclomatic config
     cyclomatic_node_types = frozenset({
         "if_statement", "for_statement", "enhanced_for_statement",

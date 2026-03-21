@@ -8,3 +8,4 @@ build/
 htmlcov/
 coverage.xml
 .pytest_cache/
+.complexity-cache/

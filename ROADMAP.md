@@ -36,16 +36,16 @@
 | 8 | PyPI publishing workflow | ✅ Done | `.github/workflows/publish.yml` with OIDC trusted publishing |
 | 9 | Add CHANGELOG.md | ✅ Done | Keep a Changelog format, v0.1.0 and v0.2.0 entries |
 
-## Phase 3: Medium-Term Features (1-3 months)
+## Phase 3: Medium-Term Features ✅ Complete
 
-| # | Item | Why |
-|---|------|-----|
-| 10 | Class-level metrics (WMC, method count, total complexity) | OOP-heavy codebases need class-level analysis, not just function-level |
-| 11 | HTML report output (`--format html`) | Rich visual reports for stakeholders and dashboards |
-| 12 | Content-hash caching | Avoid re-parsing unchanged files on repeated scans |
-| 13 | Halstead metrics for improved MI accuracy | Current MI formula omits the Halstead Volume term from the original SEI formula |
-| 14 | SARIF output format | Integrates with GitHub Code Scanning Security tab |
-| 15 | Plugin architecture for languages | `LanguagePlugin` protocol with entry-point discovery for third-party language support |
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 10 | Class-level metrics (WMC, method count, total complexity) | ✅ Done | `ClassMetrics` dataclass; all 7 languages supported |
+| 11 | HTML report output (`--format html`) | ✅ Done | Self-contained HTML with embedded CSS/JS, sortable tables |
+| 12 | Content-hash caching | ✅ Done | SHA-256 content hashes; `--no-cache` flag; `.complexity-cache/` directory |
+| 13 | Halstead metrics for improved MI accuracy | ✅ Done | Full SEI MI formula with Halstead Volume; Python (libcst) + tree-sitter |
+| 14 | SARIF output format | ✅ Done | SARIF 2.1.0; `--format sarif`; GitHub Code Scanning compatible |
+| 15 | Plugin architecture for languages | ✅ Done | `LanguagePlugin` protocol; entry-point discovery; `list-plugins` command |
 
 ## Phase 4: Long-Term (3-6 months)
 
@@ -59,8 +59,8 @@
 
 ## Recommended Next Steps (Top 5)
 
-1. **Class-level metrics** — OOP codebases need WMC and per-class analysis
-2. **Content-hash caching** — avoid redundant re-parsing on repeated scans
-3. **HTML report output** — stakeholder-friendly visual reports
-4. **SARIF output** — GitHub Code Scanning integration
-5. **Plugin architecture** — enable third-party language support
+1. **Duplication/clone detection** — Major complexity signal not currently captured
+2. **Trend visualization** — sparklines/charts for the `trend` command
+3. **Docker image** — Pre-built image with all language extras
+4. **Monorepo support** — Per-package thresholds and reporting
+5. **VS Code extension** — Inline complexity display, hotspot highlighting

@@ -43,6 +43,9 @@ class RustParser(TreeSitterParser):
     lambda_types = frozenset({"closure_expression"})
     nesting_only_types = frozenset({"unsafe_block"})
 
+    # Class-level metrics (impl blocks are the closest to classes in Rust)
+    class_node_types = frozenset({"impl_item"})
+
     # Cyclomatic config
     cyclomatic_node_types = frozenset({
         "if_expression", "for_expression", "while_expression",
