@@ -56,6 +56,9 @@ NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * c
 | Go | tree-sitter-go | `pip install complexity-accounting[go]` |
 | Java | tree-sitter-java | `pip install complexity-accounting[java]` |
 | TypeScript | tree-sitter-typescript | `pip install complexity-accounting[ts]` |
+| JavaScript | tree-sitter-javascript | `pip install complexity-accounting[js]` |
+| Rust | tree-sitter-rust | `pip install complexity-accounting[rust]` |
+| C/C++ | tree-sitter-cpp | `pip install complexity-accounting[cpp]` |
 
 ## CLI Reference
 
@@ -77,6 +80,7 @@ python -m complexity_accounting scan <path> [options]
 | `--churn-commits N` | Max commits for churn analysis | 100 |
 | `--no-churn` | Skip churn factor calculation | off |
 | `--no-coupling` | Skip coupling factor calculation | off |
+| `--output FILE` / `-o` | Write output to file instead of stdout | stdout |
 
 ### `compare` — Diff complexity between git refs
 
@@ -252,6 +256,20 @@ You can also use the CLI directly without the composite action:
       > complexity-report.md
 ```
 
+## Pre-commit Hook
+
+Add complexity checking to your [pre-commit](https://pre-commit.com/) config:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/zhanglpg/code-complexity-measure
+    rev: main
+    hooks:
+      - id: complexity-check
+        args: ['--fail-above', '8']
+```
+
 ## Architecture
 
 ```
@@ -262,13 +280,17 @@ complexity_accounting/
 ├── coupling.py         # Import coupling analysis (efferent coupling)
 ├── go_parser.py        # Go support via tree-sitter
 ├── java_parser.py      # Java support via tree-sitter
+├── ts_parser.py        # TypeScript support via tree-sitter
+├── js_parser.py        # JavaScript support via tree-sitter
+├── rust_parser.py      # Rust support via tree-sitter
+├── cpp_parser.py       # C/C++ support via tree-sitter
 ├── config.py           # Configuration loading (.complexity.toml, pyproject.toml)
 ├── __main__.py         # CLI entry point
 └── __init__.py
 ```
 
 - **libcst** for Python AST parsing (preserves comments, whitespace, position info)
-- **tree-sitter** for Go and Java parsing
+- **tree-sitter** for Go, Java, TypeScript, JavaScript, Rust, and C/C++ parsing
 - Pure Python, no external services
 - Graceful degradation — churn/coupling are optional, tool works without git
 

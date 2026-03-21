@@ -4,9 +4,24 @@ import sys
 import argparse
 import json
 import os
+from contextlib import contextmanager
 
 from .scanner import scan_file, scan_directory, ScanResult, get_language
 from .config import Config, load_config, merge_cli_overrides
+
+
+@contextmanager
+def _output_stream(args):
+    """Yield a writable stream: file if --output is set, else stdout."""
+    output_path = getattr(args, "output", None)
+    if output_path:
+        fh = open(output_path, "w", encoding="utf-8")
+        try:
+            yield fh
+        finally:
+            fh.close()
+    else:
+        yield sys.stdout
 
 
 def cmd_scan(args):
@@ -82,109 +97,116 @@ def cmd_scan(args):
             config, churn_factor=churn_factor, coupling_factor=coupling_factor
         )
 
-    if args.json:
-        output = result.to_dict()
-        output["summary"]["net_complexity_score"] = ncs
-        output["summary"]["churn_factor"] = round(churn_factor, 4)
-        output["summary"]["coupling_factor"] = round(coupling_factor, 4)
-        output["summary"]["ncs_model"] = config.ncs_model
-        if explanation is not None:
-            output["explanation"] = explanation
-        print(json.dumps(output, indent=2))
-    else:
-        # Human-readable summary
-        print("=" * 60)
-        print("  COMPLEXITY ACCOUNTING REPORT")
-        print("=" * 60)
-        print()
-
-        s = result.to_dict()["summary"]
-
-        # NCS rating
-        if ncs <= 3:
-            rating = "🟢 Healthy"
-        elif ncs <= 6:
-            rating = "🟡 Moderate"
-        elif ncs <= 10:
-            rating = "🟠 Concerning"
+    with _output_stream(args) as out:
+        if args.json:
+            data = result.to_dict()
+            data["summary"]["net_complexity_score"] = ncs
+            data["summary"]["churn_factor"] = round(churn_factor, 4)
+            data["summary"]["coupling_factor"] = round(coupling_factor, 4)
+            data["summary"]["ncs_model"] = config.ncs_model
+            if explanation is not None:
+                data["explanation"] = explanation
+            print(json.dumps(data, indent=2), file=out)
         else:
-            rating = "🔴 Critical"
+            # Human-readable summary
+            print("=" * 60, file=out)
+            print("  COMPLEXITY ACCOUNTING REPORT", file=out)
+            print("=" * 60, file=out)
+            print(file=out)
 
-        print(f"  Net Complexity Score:  {ncs}  {rating}")
-        print(f"  Files scanned:        {s['files_scanned']}")
-        print(f"  Total functions:      {s['total_functions']}")
-        print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}")
-        print(f"  Hotspots (>={config.hotspot_threshold}):     {s['hotspot_count']}")
-        if config.ncs_model != "multiplicative":
-            print(f"  NCS model:            {config.ncs_model}")
-        if churn_factor != 1.0:
-            print(f"  Churn factor:         {churn_factor:.3f}")
-        if coupling_factor != 1.0:
-            print(f"  Coupling factor:      {coupling_factor:.3f}")
-        print(f"  Avg MI:               {s['avg_maintainability_index']}")
-        print()
+            s = result.to_dict()["summary"]
 
-        # Explain breakdown
-        if explanation is not None:
-            print(f"  NCS Breakdown ({explanation['model']}):")
-            print(f"  {'─' * 56}")
-            print(
-                f"    Base complexity:    {explanation['base_complexity']:7.2f}"
-                f"  ({config.weight_cognitive} * {explanation['avg_cognitive']:.2f} cog"
-                f" + {config.weight_cyclomatic} * {explanation['avg_cyclomatic']:.2f} cyc)"
-            )
-            print(
-                f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
-                f"  (ratio={explanation['hotspot_ratio']:.2f})"
-            )
-            print(
-                f"    Churn effect:      {explanation['churn_contribution']:+7.2f}"
-                f"  (factor={explanation['churn_factor']:.3f})"
-            )
-            print(
-                f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
-                f"  (factor={explanation['coupling_factor']:.3f})"
-            )
-            print(
-                f"    MI effect:         {explanation['mi_contribution']:+7.2f}"
-                f"  (avg_mi={explanation['avg_maintainability_index']:.1f})"
-            )
-            print(f"    Final NCS:         {explanation['ncs']:7.2f}")
-            if explanation['dominant_factor'] != "none":
-                print(f"    Dominant factor:    {explanation['dominant_factor']}")
-            print()
+            # NCS rating
+            if ncs <= 3:
+                rating = "🟢 Healthy"
+            elif ncs <= 6:
+                rating = "🟡 Moderate"
+            elif ncs <= 10:
+                rating = "🟠 Concerning"
+            else:
+                rating = "🔴 Critical"
 
-        # Top complex functions
-        all_funcs = []
-        for fm in result.files:
-            for fn in fm.functions:
-                all_funcs.append(fn)
+            print(f"  Net Complexity Score:  {ncs}  {rating}", file=out)
+            print(f"  Files scanned:        {s['files_scanned']}", file=out)
+            print(f"  Total functions:      {s['total_functions']}", file=out)
+            print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}", file=out)
+            print(f"  Hotspots (>={config.hotspot_threshold}):     {s['hotspot_count']}", file=out)
+            if config.ncs_model != "multiplicative":
+                print(f"  NCS model:            {config.ncs_model}", file=out)
+            if churn_factor != 1.0:
+                print(f"  Churn factor:         {churn_factor:.3f}", file=out)
+            if coupling_factor != 1.0:
+                print(f"  Coupling factor:      {coupling_factor:.3f}", file=out)
+            print(f"  Avg MI:               {s['avg_maintainability_index']}", file=out)
+            print(file=out)
 
-        all_funcs.sort(key=lambda f: f.cognitive_complexity, reverse=True)
-        top = all_funcs[: args.top]
-
-        if top:
-            print(f"  Top {min(len(top), args.top)} most complex functions:")
-            print(f"  {'─' * 56}")
-            for fn in top:
-                risk = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
-                lang = get_language(fn.file_path)
-                low, mod, high = config.get_risk_levels(lang)
-                icon = risk.get(fn.get_risk_level(low, mod, high), "  ")
-                # Shorten path for display
-                short_path = fn.file_path
-                if len(short_path) > 30:
-                    short_path = "..." + short_path[-27:]
+            # Explain breakdown
+            if explanation is not None:
+                print(f"  NCS Breakdown ({explanation['model']}):", file=out)
+                print(f"  {'─' * 56}", file=out)
                 print(
-                    f"  {icon} {fn.cognitive_complexity:3d}  {fn.qualified_name:30s}  {short_path}:{fn.line}"
+                    f"    Base complexity:    {explanation['base_complexity']:7.2f}"
+                    f"  ({config.weight_cognitive} * {explanation['avg_cognitive']:.2f} cog"
+                    f" + {config.weight_cyclomatic} * {explanation['avg_cyclomatic']:.2f} cyc)",
+                    file=out,
                 )
-            print()
+                print(
+                    f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
+                    f"  (ratio={explanation['hotspot_ratio']:.2f})",
+                    file=out,
+                )
+                print(
+                    f"    Churn effect:      {explanation['churn_contribution']:+7.2f}"
+                    f"  (factor={explanation['churn_factor']:.3f})",
+                    file=out,
+                )
+                print(
+                    f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
+                    f"  (factor={explanation['coupling_factor']:.3f})",
+                    file=out,
+                )
+                print(
+                    f"    MI effect:         {explanation['mi_contribution']:+7.2f}"
+                    f"  (avg_mi={explanation['avg_maintainability_index']:.1f})",
+                    file=out,
+                )
+                print(f"    Final NCS:         {explanation['ncs']:7.2f}", file=out)
+                if explanation['dominant_factor'] != "none":
+                    print(f"    Dominant factor:    {explanation['dominant_factor']}", file=out)
+                print(file=out)
 
-        print("=" * 60)
+            # Top complex functions
+            all_funcs = []
+            for fm in result.files:
+                for fn in fm.functions:
+                    all_funcs.append(fn)
+
+            all_funcs.sort(key=lambda f: f.cognitive_complexity, reverse=True)
+            top = all_funcs[: args.top]
+
+            if top:
+                print(f"  Top {min(len(top), args.top)} most complex functions:", file=out)
+                print(f"  {'─' * 56}", file=out)
+                for fn in top:
+                    risk = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
+                    lang = get_language(fn.file_path)
+                    low, mod, high = config.get_risk_levels(lang)
+                    icon = risk.get(fn.get_risk_level(low, mod, high), "  ")
+                    # Shorten path for display
+                    short_path = fn.file_path
+                    if len(short_path) > 30:
+                        short_path = "..." + short_path[-27:]
+                    print(
+                        f"  {icon} {fn.cognitive_complexity:3d}  {fn.qualified_name:30s}  {short_path}:{fn.line}",
+                        file=out,
+                    )
+                print(file=out)
+
+            print("=" * 60, file=out)
 
     # CI gate
     if args.fail_above is not None and ncs > args.fail_above:
-        print(f"\n❌ FAILED: NCS {ncs} exceeds threshold {args.fail_above}")
+        print(f"\n❌ FAILED: NCS {ncs} exceeds threshold {args.fail_above}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -200,12 +222,13 @@ def cmd_compare(args):
         include_tests=getattr(args, "include_tests", False),
     )
 
-    if args.json:
-        print(report.to_json())
-    elif args.markdown:
-        print(report.to_markdown())
-    else:
-        print(report.to_markdown())
+    with _output_stream(args) as out:
+        if args.json:
+            print(report.to_json(), file=out)
+        elif args.markdown:
+            print(report.to_markdown(), file=out)
+        else:
+            print(report.to_markdown(), file=out)
 
 
 def cmd_trend(args):
@@ -219,19 +242,21 @@ def cmd_trend(args):
         include_tests=getattr(args, "include_tests", False),
     )
 
-    if args.json:
-        print(json.dumps(results, indent=2))
-    else:
-        print(f"\n{'Commit':>10}  {'NCS':>6}  {'Cog':>6}  {'Funcs':>6}  {'Message'}")
-        print(f"{'─' * 10}  {'─' * 6}  {'─' * 6}  {'─' * 6}  {'─' * 40}")
-        for r in results:
-            if "error" in r:
-                print(f"{r['commit']:>10}  {'err':>6}  {'':>6}  {'':>6}  {r.get('message', '')}")
-            else:
-                print(
-                    f"{r['commit']:>10}  {r['ncs']:>6.1f}  {r['total_cognitive']:>6}  {r['total_functions']:>6}  {r.get('message', '')}"
-                )
-        print()
+    with _output_stream(args) as out:
+        if args.json:
+            print(json.dumps(results, indent=2), file=out)
+        else:
+            print(f"\n{'Commit':>10}  {'NCS':>6}  {'Cog':>6}  {'Funcs':>6}  {'Message'}", file=out)
+            print(f"{'─' * 10}  {'─' * 6}  {'─' * 6}  {'─' * 6}  {'─' * 40}", file=out)
+            for r in results:
+                if "error" in r:
+                    print(f"{r['commit']:>10}  {'err':>6}  {'':>6}  {'':>6}  {r.get('message', '')}", file=out)
+                else:
+                    print(
+                        f"{r['commit']:>10}  {r['ncs']:>6.1f}  {r['total_cognitive']:>6}  {r['total_functions']:>6}  {r.get('message', '')}",
+                        file=out,
+                    )
+            print(file=out)
 
 
 def main():
@@ -271,6 +296,11 @@ def main():
         "--include-tests", action="store_true",
         help="Include test files in complexity scoring (excluded by default)",
     )
+    scan_p.add_argument(
+        "--output", "-o", default=None,
+        help="Write output to FILE instead of stdout",
+        metavar="FILE",
+    )
     scan_p.set_defaults(func=cmd_scan)
 
     # compare
@@ -285,6 +315,11 @@ def main():
         "--include-tests", action="store_true",
         help="Include test files in complexity scoring (excluded by default)",
     )
+    cmp_p.add_argument(
+        "--output", "-o", default=None,
+        help="Write output to FILE instead of stdout",
+        metavar="FILE",
+    )
     cmp_p.set_defaults(func=cmd_compare)
 
     # trend
@@ -296,6 +331,11 @@ def main():
     trend_p.add_argument(
         "--include-tests", action="store_true",
         help="Include test files in complexity scoring (excluded by default)",
+    )
+    trend_p.add_argument(
+        "--output", "-o", default=None,
+        help="Write output to FILE instead of stdout",
+        metavar="FILE",
     )
     trend_p.set_defaults(func=cmd_trend)
 

@@ -35,6 +35,7 @@ def _make_scan_args(**overrides):
         no_coupling=True,
         ncs_model=None,
         brief=False,
+        output=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
@@ -767,6 +768,45 @@ def test_cmd_scan_additive_mi_in_explanation():
         assert exp["mi_contribution"] > 0
     finally:
         os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Test runner
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# --output flag tests
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_output_flag_writes_file():
+    """--output writes results to a file instead of stdout."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "simple.py").write_text("def foo(): pass\n")
+        outfile = os.path.join(tmpdir, "report.json")
+        args = _make_scan_args(path=tmpdir, json=True, output=outfile)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            cmd_scan(args)
+        # stdout should be empty — output went to file
+        assert stdout.getvalue() == ""
+        with open(outfile) as f:
+            result = json.loads(f.read())
+        assert "summary" in result
+
+
+def test_cmd_scan_output_flag_text():
+    """--output works for text output too."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "simple.py").write_text("def foo(): pass\n")
+        outfile = os.path.join(tmpdir, "report.txt")
+        args = _make_scan_args(path=tmpdir, json=False, output=outfile)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            cmd_scan(args)
+        assert stdout.getvalue() == ""
+        with open(outfile) as f:
+            content = f.read()
+        assert "COMPLEXITY ACCOUNTING REPORT" in content
 
 
 # ---------------------------------------------------------------------------
