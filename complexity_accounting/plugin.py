@@ -16,7 +16,7 @@ from __future__ import annotations
 import sys
 from typing import Dict, List, Optional, Tuple
 
-from .scanner import FileMetrics
+from .models import FileMetrics
 
 if sys.version_info >= (3, 8):
     from typing import Protocol, runtime_checkable

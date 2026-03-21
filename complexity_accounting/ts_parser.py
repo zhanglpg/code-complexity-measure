@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .scanner import FunctionMetrics, FileMetrics, compute_mi
+from .models import FunctionMetrics, FileMetrics, compute_mi
 from .base_parser import TreeSitterParser
 
 try:
@@ -94,21 +94,7 @@ class TsParser(TreeSitterParser):
                         visit(child, class_stack + [class_name])
                 return
 
-            if node.type == "method_definition":
-                name_node = node.child_by_field_name("name")
-                name = name_node.text.decode() if name_node else "<unknown>"
-                qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-                body = node.child_by_field_name("body")
-                params_node = node.child_by_field_name("parameters")
-
-                functions.append(self.build_function_metrics(
-                    node, name, qualified, file_path, body,
-                    _count_params(params_node) if params_node else 0,
-                ))
-                return
-
-            if node.type == "function_declaration":
+            if node.type in ("method_definition", "function_declaration"):
                 name_node = node.child_by_field_name("name")
                 name = name_node.text.decode() if name_node else "<unknown>"
                 qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name

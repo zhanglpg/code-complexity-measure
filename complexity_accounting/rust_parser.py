@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .scanner import FunctionMetrics, FileMetrics, compute_mi
+from .models import FunctionMetrics, FileMetrics, compute_mi
 from .base_parser import TreeSitterParser
 
 try:
@@ -77,24 +77,10 @@ class RustParser(TreeSitterParser):
                 return
 
             if node.type == "function_item":
-                name_node = None
-                for child in node.children:
-                    if child.type == "identifier":
-                        name_node = child
-                        break
-                name = name_node.text.decode() if name_node else "<unknown>"
+                name = _get_child_text(node, "identifier")
                 qualified = f"{'.'.join(scope_stack)}.{name}" if scope_stack else name
-
-                body = None
-                for child in node.children:
-                    if child.type == "block":
-                        body = child
-
-                params_node = None
-                for child in node.children:
-                    if child.type == "parameters":
-                        params_node = child
-                        break
+                body = _find_child_by_type(node, "block")
+                params_node = _find_child_by_type(node, "parameters")
 
                 functions.append(self.build_function_metrics(
                     node, name, qualified, file_path, body,
@@ -107,6 +93,20 @@ class RustParser(TreeSitterParser):
 
         visit(tree.root_node, [])
         return functions
+
+
+def _find_child_by_type(node, type_name: str):
+    """Find the first child of a given type."""
+    for child in node.children:
+        if child.type == type_name:
+            return child
+    return None
+
+
+def _get_child_text(node, type_name: str) -> str:
+    """Get decoded text of the first child matching the type, or '<unknown>'."""
+    child = _find_child_by_type(node, type_name)
+    return child.text.decode() if child else "<unknown>"
 
 
 def _count_params(params_node) -> int:
