@@ -95,7 +95,7 @@ def generate_html_report(
             <h2>NCS Breakdown ({explanation.get('model', 'multiplicative')})</h2>
             <table class="breakdown-table">
                 <tr><td>Base complexity</td><td>{explanation['base_complexity']:.2f}</td></tr>
-                <tr><td>Hotspot effect</td><td>{explanation['hotspot_contribution']:+.2f} (ratio={explanation['hotspot_ratio']:.2f})</td></tr>
+                <tr><td>Hotspot effect</td><td>{explanation['hotspot_contribution']:+.2f} (severity={explanation['hotspot_ratio']:.2f})</td></tr>
                 <tr><td>Churn effect</td><td>{explanation['churn_contribution']:+.2f} (factor={explanation['churn_factor']:.3f})</td></tr>
                 <tr><td>Coupling effect</td><td>{explanation['coupling_contribution']:+.2f} (factor={explanation['coupling_factor']:.3f})</td></tr>
                 <tr><td>MI effect</td><td>{explanation['mi_contribution']:+.2f} (avg_mi={explanation['avg_maintainability_index']:.1f})</td></tr>

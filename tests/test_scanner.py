@@ -681,6 +681,30 @@ def test_compute_ncs_language_specific_hotspot():
         os.unlink(path)
 
 
+def test_hotspot_severity_proportional():
+    """Weighted severity: a CC=100 function should produce higher NCS than CC=11."""
+    from complexity_accounting.config import Config
+    from complexity_accounting.models import FunctionMetrics, FileMetrics, ScanResult
+
+    def _make_result(cc: int) -> ScanResult:
+        fn = FunctionMetrics(
+            name="f", qualified_name="f", file_path="test.py",
+            line=1, end_line=10, cognitive_complexity=cc,
+            cyclomatic_complexity=cc // 2 or 1, nloc=10,
+        )
+        fm = FileMetrics(path="test.py", functions=[fn], total_lines=10, code_lines=10)
+        return ScanResult(files=[fm])
+
+    config = Config(hotspot_threshold=10)
+    ncs_11 = _make_result(11).compute_ncs(config)
+    ncs_100 = _make_result(100).compute_ncs(config)
+
+    # Both are above threshold, but severity should make CC=100 score much higher
+    assert ncs_100 > ncs_11
+    # The difference should be substantial (not just rounding)
+    assert ncs_100 > ncs_11 * 2
+
+
 # ---------------------------------------------------------------------------
 # P5: compute_ncs_explained tests
 # ---------------------------------------------------------------------------

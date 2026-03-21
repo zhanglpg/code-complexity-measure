@@ -71,7 +71,7 @@ class TestFixtureProject:
     def test_scan_fixture_project_ncs(self):
         """NCS is deterministic for the fixture project."""
         result = scan_directory(str(FIXTURE_PROJECT))
-        assert result.net_complexity_score == 8.33
+        assert result.net_complexity_score == 10.51
 
     def test_scan_fixture_project_hotspots(self):
         """Only handle_request is a hotspot at threshold=10."""
@@ -444,7 +444,7 @@ class TestCLIWorkflow:
         data = json.loads(out.getvalue())
         assert data["summary"]["total_functions"] == 7
         # cmd_scan auto-loads .complexity.toml (weights 0.8/0.2), so NCS differs from legacy
-        assert data["summary"]["net_complexity_score"] == 7.48
+        assert data["summary"]["net_complexity_score"] == 10.4
 
     def test_cli_scan_fixture_text(self):
         """cmd_scan produces human-readable text with expected sections."""
