@@ -56,11 +56,40 @@
 | 18 | Trend visualization (sparklines/charts) | `trend` command outputs plain table only |
 | 19 | Docker image | Pre-built image with all language extras |
 | 20 | Monorepo support | Per-package thresholds and reporting |
+| 21 | Weighted hotspot severity in NCS formula | Binary hotspot count misses magnitude of improvements (see notes below) |
+
+### Notes on Hotspot Metric Sensitivity (#21)
+
+Discovered during self-refactoring analysis (see `analysis.md`): the current hotspot
+metric uses a binary classification — a function is either above or below the threshold.
+This means the NCS formula cannot distinguish between a function at CC=11 (barely a
+hotspot) and one at CC=141 (extreme hotspot). When refactoring reduces a function from
+CC=141 to CC=18, it still counts as one hotspot, and the hotspot_ratio is unchanged.
+
+**Observed impact:** Across 3 refactoring iterations that reduced avg cognitive complexity
+by 22%, the hotspot count stayed flat at 32. The NCS still improved (via avg complexity),
+but the hotspot component of the formula was insensitive to meaningful quality gains.
+
+**Proposed improvement:** Replace or supplement binary hotspot count with a **weighted
+hotspot severity score**, e.g.:
+
+```
+hotspot_severity = sum(max(0, cc - threshold) for each function) / total_functions
+```
+
+This would make the metric proportional to _how far_ above the threshold functions are,
+not just _whether_ they are. A function dropping from CC=141 to CC=18 would reduce
+severity by 123 points, while the current binary count only changes if it crosses below
+the threshold entirely.
+
+**Trade-off:** The current binary ratio is simple and easy to explain ("15% of functions
+are hotspots"). A severity score is more sensitive but harder to interpret. Consider
+offering both, or using severity in the NCS formula while showing count in reports.
 
 ## Recommended Next Steps (Top 5)
 
-1. **Duplication/clone detection** — Major complexity signal not currently captured
-2. **Trend visualization** — sparklines/charts for the `trend` command
-3. **Docker image** — Pre-built image with all language extras
-4. **Monorepo support** — Per-package thresholds and reporting
-5. **VS Code extension** — Inline complexity display, hotspot highlighting
+1. **Weighted hotspot severity** (#21) — Low-effort NCS formula improvement informed by empirical self-analysis
+2. **Duplication/clone detection** (#16) — Major complexity signal not currently captured
+3. **Trend visualization** (#18) — sparklines/charts for the `trend` command
+4. **Docker image** (#19) — Pre-built image with all language extras
+5. **Monorepo support** (#20) — Per-package thresholds and reporting
