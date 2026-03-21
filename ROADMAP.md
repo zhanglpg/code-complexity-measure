@@ -2,36 +2,39 @@
 
 > Last updated: 2026-03-21
 
-## Current State (v0.1.0)
+## Current State (v0.2.0)
 
 - 7 supported languages: Python, Go, Java, TypeScript, JavaScript, Rust, C/C++
 - Metrics: Cognitive complexity, Cyclomatic complexity, Maintainability Index, Net Complexity Score
 - Features: Git comparison, trend tracking, churn/coupling factors, GitHub Action
-- 97.6% test coverage
+- Shared `TreeSitterParser` base class for all tree-sitter parsers
+- Multi-language coupling analysis (all 7 languages)
+- Parallel file scanning via `ProcessPoolExecutor`
+- 92% test coverage
 
 ## Known Bugs
 
-1. **`compare_refs` full-scan ignores non-Python files** — `git_tracker.py:235` filters with `f.endswith('.py')` instead of checking `SUPPORTED_EXTENSIONS`. Full-scan mode silently drops Go/Java/TS/JS/Rust/C++ files.
-2. **README language table is stale** — Only lists Python, Go, Java, TypeScript. Missing JavaScript, Rust, and C/C++ which are fully implemented.
+1. ~~**`compare_refs` full-scan ignores non-Python files** — `git_tracker.py:235` filters with `f.endswith('.py')` instead of checking `SUPPORTED_EXTENSIONS`. Full-scan mode silently drops Go/Java/TS/JS/Rust/C++ files.~~ **Fixed in v0.1.0**
+2. ~~**README language table is stale** — Only lists Python, Go, Java, TypeScript. Missing JavaScript, Rust, and C/C++ which are fully implemented.~~ **Fixed in v0.1.0**
 
-## Phase 1: Immediate Quick Wins
+## Phase 1: Immediate Quick Wins ✅ Complete
 
-| # | Item | Why | Files |
-|---|------|-----|-------|
-| 1 | Fix `compare_refs` to use `SUPPORTED_EXTENSIONS` instead of `.endswith('.py')` | Correctness bug — non-Python full-scan comparisons are broken | `git_tracker.py` |
-| 2 | Update README language table with JS, Rust, C/C++ rows | Users can't discover supported languages | `README.md` |
-| 3 | Add `--output FILE` flag to write results to a file | Common CI need — currently requires shell redirection | `__main__.py` |
-| 4 | Add `.pre-commit-hooks.yaml` for pre-commit integration | Low-effort adoption boost | New file |
+| # | Item | Status |
+|---|------|--------|
+| 1 | Fix `compare_refs` to use `SUPPORTED_EXTENSIONS` instead of `.endswith('.py')` | ✅ Done |
+| 2 | Update README language table with JS, Rust, C/C++ rows | ✅ Done |
+| 3 | Add `--output FILE` flag to write results to a file | ✅ Done |
+| 4 | Add `.pre-commit-hooks.yaml` for pre-commit integration | ✅ Done |
 
-## Phase 2: Short-Term Architecture & Accuracy (2-6 weeks)
+## Phase 2: Short-Term Architecture & Accuracy ✅ Complete
 
-| # | Item | Why | Files |
-|---|------|-----|-------|
-| 5 | Refactor tree-sitter parsers into shared base class | JS/TS/C++/Rust/Go parsers are ~80% identical code. A `TreeSitterParser` base class would cut ~1000 lines of duplication and make adding languages trivial. | New `base_parser.py`, all tree-sitter parsers |
-| 6 | Extend coupling analysis beyond Python | `coupling.py` only globs `*.py`. Coupling factor is silently 1.0 for all other languages, making NCS systematically low for non-Python projects. | `coupling.py` |
-| 7 | Add parallel file scanning | `scan_directory` processes files sequentially. `ProcessPoolExecutor` would give near-linear speedup for large codebases. | `scanner.py` |
-| 8 | PyPI publishing workflow | Tool is not discoverable without PyPI. Add a GitHub Actions workflow triggered on tag push. | New `.github/workflows/publish.yml` |
-| 9 | Add CHANGELOG.md | 18 PRs with no changelog is a gap for users tracking changes. | New file |
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 5 | Refactor tree-sitter parsers into shared base class | ✅ Done | `base_parser.py` with `TreeSitterParser`; ~1200 lines eliminated |
+| 6 | Extend coupling analysis beyond Python | ✅ Done | Go, Java, JS, TS, Rust, C/C++ imports via tree-sitter |
+| 7 | Add parallel file scanning | ✅ Done | `ProcessPoolExecutor` with `--workers N` CLI flag |
+| 8 | PyPI publishing workflow | ✅ Done | `.github/workflows/publish.yml` with OIDC trusted publishing |
+| 9 | Add CHANGELOG.md | ✅ Done | Keep a Changelog format, v0.1.0 and v0.2.0 entries |
 
 ## Phase 3: Medium-Term Features (1-3 months)
 
@@ -56,8 +59,8 @@
 
 ## Recommended Next Steps (Top 5)
 
-1. **Fix the `compare_refs` bug** — one-line fix, correctness issue
-2. **Update README language table** — documentation accuracy
-3. **Refactor tree-sitter parsers** — biggest code quality win, reduces ~1000 lines of duplication
-4. **Extend coupling to all languages** — fixes systematic NCS underestimation for non-Python projects
-5. **Add PyPI publishing** — discoverability
+1. **Class-level metrics** — OOP codebases need WMC and per-class analysis
+2. **Content-hash caching** — avoid redundant re-parsing on repeated scans
+3. **HTML report output** — stakeholder-friendly visual reports
+4. **SARIF output** — GitHub Code Scanning integration
+5. **Plugin architecture** — enable third-party language support

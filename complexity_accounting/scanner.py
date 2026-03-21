@@ -792,14 +792,16 @@ def scan_directory(
     directory: str,
     exclude_patterns: Optional[List[str]] = None,
     include_tests: bool = False,
+    workers: Optional[int] = None,
 ) -> ScanResult:
     """
-    Recursively scan all Python files in a directory.
+    Recursively scan all supported source files in a directory.
 
     Args:
         directory: Path to scan
         exclude_patterns: Glob patterns to exclude (e.g. ["**/test_*", "**/venv/**"])
         include_tests: If False (default), test files are excluded from scanning
+        workers: Number of parallel workers. None = auto, 1 = sequential.
     """
     if exclude_patterns is None:
         exclude_patterns = [
@@ -813,10 +815,10 @@ def scan_directory(
 
     from fnmatch import fnmatch
 
+    files_to_scan = []
     for source_file in sorted(root.rglob("*")):
         if source_file.suffix not in SUPPORTED_EXTENSIONS:
             continue
-        # Check exclusions
         rel = str(source_file.relative_to(root))
         skip = any(
             fnmatch(rel, pat) or fnmatch(str(source_file), pat)
@@ -824,17 +826,29 @@ def scan_directory(
         )
         if skip:
             continue
-        # Exclude test files by default (checked against relative path only)
         if not include_tests and any(fnmatch(rel, pat) for pat in TEST_FILE_PATTERNS):
             continue
+        files_to_scan.append(str(source_file))
 
-        try:
-            fm = scan_file(str(source_file))
-            result.files.append(fm)
-        except Exception as e:
-            # Skip files that can't be read
-            print(f"Warning: skipping {source_file}: {e}", file=sys.stderr)
-    
+    if workers == 1 or len(files_to_scan) <= 4:
+        # Sequential scanning
+        for fp in files_to_scan:
+            try:
+                result.files.append(scan_file(fp))
+            except Exception as e:
+                print(f"Warning: skipping {fp}: {e}", file=sys.stderr)
+    else:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(scan_file, fp): fp for fp in files_to_scan}
+            for future in as_completed(futures):
+                try:
+                    result.files.append(future.result())
+                except Exception as e:
+                    print(f"Warning: skipping {futures[future]}: {e}", file=sys.stderr)
+        # Sort by path for deterministic output
+        result.files.sort(key=lambda fm: fm.path)
+
     return result
 
 

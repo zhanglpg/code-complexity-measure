@@ -61,7 +61,8 @@ def cmd_scan(args):
     if target.is_file():
         result = ScanResult(files=[scan_file(str(target))])
     elif target.is_dir():
-        result = scan_directory(str(target), include_tests=config.include_tests)
+        workers = getattr(args, "workers", None)
+        result = scan_directory(str(target), include_tests=config.include_tests, workers=workers)
     else:
         print(f"Error: {target} not found", file=sys.stderr)
         sys.exit(1)
@@ -295,6 +296,10 @@ def main():
     scan_p.add_argument(
         "--include-tests", action="store_true",
         help="Include test files in complexity scoring (excluded by default)",
+    )
+    scan_p.add_argument(
+        "--workers", type=int, default=None,
+        help="Number of parallel workers for scanning (default: auto, 1 = sequential)",
     )
     scan_p.add_argument(
         "--output", "-o", default=None,

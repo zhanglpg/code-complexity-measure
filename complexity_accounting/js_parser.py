@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import List
 
 from .scanner import FunctionMetrics, FileMetrics, compute_mi
+from .base_parser import TreeSitterParser
 
 try:
     import tree_sitter as ts
@@ -21,208 +22,113 @@ except ImportError:
     JS_LANGUAGE = None
 
 
-def _ensure_tree_sitter():
-    if JS_LANGUAGE is None:
-        raise ImportError(
-            "JavaScript support requires tree-sitter-javascript. "
-            "Install with: pip install complexity-accounting[js]"
+class JsParser(TreeSitterParser):
+    language = JS_LANGUAGE
+    language_name = "javascript"
+    install_extra = "js"
+
+    # Cognitive config
+    if_type = "if_statement"
+    loop_types = frozenset({"for_statement", "for_in_statement", "while_statement", "do_statement"})
+    switch_types = frozenset({"switch_statement"})
+    catch_types = frozenset({"catch_clause"})
+    body_types = frozenset({"statement_block"})
+    else_clause_types = frozenset({"else_clause"})
+
+    switch_body_types = frozenset({"switch_body"})
+    case_types = frozenset({"switch_case", "switch_default"})
+
+    bool_op_types = frozenset({"&&", "||", "??"})
+    bool_op_field = "operator"
+    break_types = frozenset({"break_statement", "continue_statement"})
+    extra_increment_types = frozenset({"ternary_expression"})
+    lambda_types = frozenset({"arrow_function"})
+
+    # Cyclomatic config
+    cyclomatic_node_types = frozenset({
+        "if_statement", "for_statement", "for_in_statement",
+        "while_statement", "do_statement", "switch_case",
+        "catch_clause", "ternary_expression",
+    })
+
+    def is_else_if(self, node) -> bool:
+        return (
+            node.parent
+            and node.parent.type == "else_clause"
+            and node.parent.parent
+            and node.parent.parent.type == "if_statement"
         )
 
+    def collect_functions(self, tree, file_path: str, source_bytes: bytes) -> List[FunctionMetrics]:
+        functions = []
 
-# ---------------------------------------------------------------------------
-# Cognitive Complexity for JavaScript
-# ---------------------------------------------------------------------------
-
-def _compute_cognitive_complexity(node) -> tuple:
-    """
-    Compute cognitive complexity for a JavaScript function body.
-
-    Returns (complexity, max_nesting).
-    """
-    complexity = 0
-    max_nesting = 0
-
-    def walk(n, nesting, parent_bool_op=None):
-        nonlocal complexity, max_nesting
-
-        if n.type == "if_statement":
-            # Check if this is an else-if (this if is the alternative of a parent if)
-            is_else_if = (
-                n.parent
-                and n.parent.type == "else_clause"
-                and n.parent.parent
-                and n.parent.parent.type == "if_statement"
-            )
-
-            if is_else_if:
-                # else-if: +1 but no nesting increment (continuation of chain)
-                complexity += 1
-                for child in n.children:
-                    walk(child, nesting)
-            else:
-                complexity += 1 + nesting
-                max_nesting = max(max_nesting, nesting + 1)
-                for child in n.children:
-                    if child.type == "statement_block" and child == n.child_by_field_name("consequence"):
-                        walk(child, nesting + 1)
-                    elif child.type == "else_clause":
-                        # Check if the else clause contains an if (else-if chain)
-                        for ec_child in child.children:
-                            if ec_child.type == "if_statement":
-                                walk(ec_child, nesting)
-                            elif ec_child.type == "statement_block":
-                                walk(ec_child, nesting + 1)
-                            else:
-                                walk(ec_child, nesting)
-                    else:
-                        walk(child, nesting)
-            return
-
-        if n.type == "for_statement":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "for_in_statement":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "while_statement":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "do_statement":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "switch_statement":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "switch_body":
-                    for case_child in child.children:
-                        if case_child.type in ("switch_case", "switch_default"):
-                            walk(case_child, nesting + 1)
-                        else:
-                            walk(case_child, nesting)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "catch_clause":
-            complexity += 1 + nesting
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
-
-        if n.type == "ternary_expression":
-            complexity += 1
-            for child in n.children:
-                walk(child, nesting)
-            return
-
-        if n.type == "binary_expression":
-            op_node = n.child_by_field_name("operator")
-            if op_node and op_node.type in ("&&", "||", "??"):
-                if op_node.type != parent_bool_op:
-                    complexity += 1
-                for child in n.children:
-                    walk(child, nesting, parent_bool_op=op_node.type)
+        def visit(node, class_stack):
+            if node.type == "export_statement":
+                for child in node.children:
+                    visit(child, class_stack)
                 return
 
-        if n.type == "break_statement":
-            complexity += 1
-            return
+            if node.type == "class_declaration":
+                name_node = node.child_by_field_name("name")
+                class_name = name_node.text.decode() if name_node else "<unknown>"
+                body = node.child_by_field_name("body")
+                if body:
+                    for child in body.children:
+                        visit(child, class_stack + [class_name])
+                return
 
-        if n.type == "continue_statement":
-            complexity += 1
-            return
+            if node.type == "method_definition":
+                name_node = node.child_by_field_name("name")
+                name = name_node.text.decode() if name_node else "<unknown>"
+                qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
 
-        if n.type == "arrow_function":
-            max_nesting = max(max_nesting, nesting + 1)
-            for child in n.children:
-                if child.type == "statement_block":
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
-            return
+                body = node.child_by_field_name("body")
+                params_node = node.child_by_field_name("parameters")
 
-        for child in n.children:
-            walk(child, nesting)
+                functions.append(self.build_function_metrics(
+                    node, name, qualified, file_path, body,
+                    _count_params(params_node) if params_node else 0,
+                ))
+                return
 
-    walk(node, 0)
-    return complexity, max_nesting
+            if node.type == "function_declaration":
+                name_node = node.child_by_field_name("name")
+                name = name_node.text.decode() if name_node else "<unknown>"
+                qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
 
+                body = node.child_by_field_name("body")
+                params_node = node.child_by_field_name("parameters")
 
-# ---------------------------------------------------------------------------
-# Cyclomatic Complexity for JavaScript
-# ---------------------------------------------------------------------------
+                functions.append(self.build_function_metrics(
+                    node, name, qualified, file_path, body,
+                    _count_params(params_node) if params_node else 0,
+                ))
+                return
 
-def _compute_cyclomatic_complexity(node) -> int:
-    """Compute McCabe cyclomatic complexity for a JavaScript function body. Baseline = 1."""
-    complexity = 1
+            if node.type in ("lexical_declaration", "variable_declaration"):
+                for child in node.children:
+                    if child.type == "variable_declarator":
+                        name_node = child.child_by_field_name("name")
+                        value_node = child.child_by_field_name("value")
+                        if value_node and value_node.type in ("arrow_function", "function_expression"):
+                            name = name_node.text.decode() if name_node else "<unknown>"
+                            qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
 
-    def walk(n):
-        nonlocal complexity
+                            body = value_node.child_by_field_name("body")
+                            params_node = value_node.child_by_field_name("parameters")
 
-        if n.type == "if_statement":
-            complexity += 1
-        elif n.type == "for_statement":
-            complexity += 1
-        elif n.type == "for_in_statement":
-            complexity += 1
-        elif n.type == "while_statement":
-            complexity += 1
-        elif n.type == "do_statement":
-            complexity += 1
-        elif n.type == "switch_case":
-            complexity += 1
-        elif n.type == "catch_clause":
-            complexity += 1
-        elif n.type == "binary_expression":
-            op_node = n.child_by_field_name("operator")
-            if op_node and op_node.type in ("&&", "||", "??"):
-                complexity += 1
-        elif n.type == "ternary_expression":
-            complexity += 1
+                            functions.append(self.build_function_metrics(
+                                child, name, qualified, file_path, body,
+                                _count_params(params_node) if params_node else 0,
+                            ))
+                return
 
-        for child in n.children:
-            walk(child)
+            for child in node.children:
+                visit(child, class_stack)
 
-    walk(node)
-    return complexity
+        visit(tree.root_node, [])
+        return functions
 
-
-# ---------------------------------------------------------------------------
-# Function collection
-# ---------------------------------------------------------------------------
 
 def _count_params(formal_params_node) -> int:
     """Count parameters in a JavaScript formal_parameters node."""
@@ -239,190 +145,27 @@ def _count_params(formal_params_node) -> int:
     return count
 
 
-def _collect_functions(tree, file_path: str, source: bytes) -> List[FunctionMetrics]:
-    """Extract function metrics from a JavaScript AST."""
-    functions = []
+# Singleton instance
+_parser = JsParser()
 
-    def visit(node, class_stack):
-        # Handle export statements — unwrap and visit the declaration inside
-        if node.type == "export_statement":
-            for child in node.children:
-                visit(child, class_stack)
-            return
 
-        if node.type == "class_declaration":
-            name_node = node.child_by_field_name("name")
-            class_name = name_node.text.decode() if name_node else "<unknown>"
-            body = node.child_by_field_name("body")
-            if body:
-                for child in body.children:
-                    visit(child, class_stack + [class_name])
-            return
-
-        if node.type == "method_definition":
-            name_node = node.child_by_field_name("name")
-            name = name_node.text.decode() if name_node else "<unknown>"
-
-            qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-            body = node.child_by_field_name("body")
-            params_node = node.child_by_field_name("parameters")
-
-            cog, max_nest = _compute_cognitive_complexity(body) if body else (0, 0)
-            cyc = _compute_cyclomatic_complexity(body) if body else 1
-
-            nloc = node.end_point[0] - node.start_point[0] + 1
-            functions.append(FunctionMetrics(
-                name=name,
-                qualified_name=qualified,
-                file_path=file_path,
-                line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
-                cognitive_complexity=cog,
-                cyclomatic_complexity=cyc,
-                nloc=nloc,
-                params=_count_params(params_node) if params_node else 0,
-                max_nesting=max_nest,
-                maintainability_index=compute_mi(nloc, cyc),
-            ))
-            return
-
-        if node.type == "function_declaration":
-            name_node = node.child_by_field_name("name")
-            name = name_node.text.decode() if name_node else "<unknown>"
-
-            qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-            body = node.child_by_field_name("body")
-            params_node = node.child_by_field_name("parameters")
-
-            cog, max_nest = _compute_cognitive_complexity(body) if body else (0, 0)
-            cyc = _compute_cyclomatic_complexity(body) if body else 1
-
-            nloc = node.end_point[0] - node.start_point[0] + 1
-            functions.append(FunctionMetrics(
-                name=name,
-                qualified_name=qualified,
-                file_path=file_path,
-                line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
-                cognitive_complexity=cog,
-                cyclomatic_complexity=cyc,
-                nloc=nloc,
-                params=_count_params(params_node) if params_node else 0,
-                max_nesting=max_nest,
-                maintainability_index=compute_mi(nloc, cyc),
-            ))
-            return
-
-        # Variable declarations with arrow functions or function expressions
-        if node.type == "lexical_declaration" or node.type == "variable_declaration":
-            for child in node.children:
-                if child.type == "variable_declarator":
-                    name_node = child.child_by_field_name("name")
-                    value_node = child.child_by_field_name("value")
-                    if value_node and value_node.type in ("arrow_function", "function_expression"):
-                        name = name_node.text.decode() if name_node else "<unknown>"
-                        qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-                        body = value_node.child_by_field_name("body")
-                        params_node = value_node.child_by_field_name("parameters")
-
-                        cog, max_nest = _compute_cognitive_complexity(body) if body else (0, 0)
-                        cyc = _compute_cyclomatic_complexity(body) if body else 1
-
-                        nloc = child.end_point[0] - child.start_point[0] + 1
-                        functions.append(FunctionMetrics(
-                            name=name,
-                            qualified_name=qualified,
-                            file_path=file_path,
-                            line=child.start_point[0] + 1,
-                            end_line=child.end_point[0] + 1,
-                            cognitive_complexity=cog,
-                            cyclomatic_complexity=cyc,
-                            nloc=nloc,
-                            params=_count_params(params_node) if params_node else 0,
-                            max_nesting=max_nest,
-                            maintainability_index=compute_mi(nloc, cyc),
-                        ))
-            return
-
-        # Recurse into other nodes (e.g., program level)
-        for child in node.children:
-            visit(child, class_stack)
-
-    visit(tree.root_node, [])
-    return functions
+def _ensure_tree_sitter():
+    if JS_LANGUAGE is None:
+        raise ImportError(
+            "JavaScript support requires tree-sitter-javascript. "
+            "Install with: pip install complexity-accounting[js]"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Line counting for JavaScript
+# Public API (backward-compatible)
 # ---------------------------------------------------------------------------
 
 def count_js_lines(source: str) -> tuple:
     """Returns (total, code, comment, blank) line counts for JavaScript source."""
-    total = 0
-    code = 0
-    comment = 0
-    blank = 0
-    in_block_comment = False
+    return _parser.count_lines(source)
 
-    for raw_line in source.splitlines():
-        total += 1
-        line = raw_line.strip()
-
-        if not line:
-            blank += 1
-            continue
-
-        if in_block_comment:
-            comment += 1
-            if "*/" in line:
-                in_block_comment = False
-            continue
-
-        if line.startswith("//"):
-            comment += 1
-            continue
-
-        if "/*" in line:
-            if "*/" in line[line.index("/*") + 2:]:
-                # Single-line block comment — count as code if there's code around it
-                code += 1
-            else:
-                in_block_comment = True
-                comment += 1
-            continue
-
-        code += 1
-
-    return total, code, comment, blank
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 
 def scan_js_file(file_path: str) -> FileMetrics:
     """Scan a single JavaScript file and return its metrics."""
-    _ensure_tree_sitter()
-
-    path = Path(file_path)
-    source = path.read_text(encoding="utf-8", errors="replace")
-    source_bytes = source.encode("utf-8")
-
-    total, code, comment_lines, blank = count_js_lines(source)
-
-    parser = ts.Parser(JS_LANGUAGE)
-    tree = parser.parse(source_bytes)
-
-    functions = _collect_functions(tree, str(path), source_bytes)
-
-    return FileMetrics(
-        path=str(path),
-        functions=functions,
-        total_lines=total,
-        code_lines=code,
-        comment_lines=comment_lines,
-        blank_lines=blank,
-    )
+    return _parser.scan_file(file_path)
