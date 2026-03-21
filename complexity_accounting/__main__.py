@@ -163,7 +163,7 @@ def _print_ncs_breakdown(explanation, config, out):
     )
     print(
         f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
-        f"  (ratio={explanation['hotspot_ratio']:.2f})",
+        f"  (severity={explanation['hotspot_ratio']:.2f})",
         file=out,
     )
     print(

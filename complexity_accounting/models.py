@@ -248,13 +248,18 @@ class ScanResult:
         avg_cyc = self.total_cyclomatic / self.total_functions
         avg_mi = self.avg_maintainability_index
 
-        # Language-aware hotspot counting
-        hotspots = 0
+        # Language-aware weighted hotspot severity
+        # Uses sum of excess complexity above threshold (not binary count)
+        # so reducing CC=141→18 is captured proportionally, not as ±1 hotspot.
+        total_excess = 0
         for f in self.files:
             lang = get_language(f.path)
             t = config.get_hotspot_threshold(lang) if config else 10
-            hotspots += len(f.hotspots(t))
-        hotspot_ratio = hotspots / self.total_functions
+            for fn in f.functions:
+                excess = fn.cognitive_complexity - t
+                if excess > 0:
+                    total_excess += excess
+        hotspot_ratio = total_excess / (self.total_functions * (config.hotspot_threshold if config else 10))
 
         # MI factor: penalizes when avg MI drops below 50 (scale 1.0–2.0)
         mi_factor = 1.0 + max(0.0, (50.0 - avg_mi) / 50.0)
