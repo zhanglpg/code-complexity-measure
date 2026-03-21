@@ -8,6 +8,42 @@ argument-hint: "[path] [--iterations N] [--threshold NCS]"
 
 You are performing metric-driven refactoring using the complexity-accounting tool. The goal is to **measurably reduce the Net Complexity Score (NCS)** while improving readability and maintainability.
 
+## Prerequisites
+
+Before running this skill, ensure the complexity-accounting tool is installed and available.
+
+### Installation
+
+```bash
+# Core (Python-only analysis)
+pip install complexity-accounting
+
+# With additional language support
+pip install complexity-accounting[go]          # Go
+pip install complexity-accounting[java]        # Java
+pip install complexity-accounting[ts]          # TypeScript
+pip install complexity-accounting[js]          # JavaScript
+pip install complexity-accounting[rust]        # Rust
+pip install complexity-accounting[cpp]         # C/C++
+```
+
+### Requirements
+
+- **Python >= 3.8**
+- **libcst >= 1.0.0** (included with the package)
+- **Git** — required for churn and coupling analysis; the tool works without git but those factors will be skipped
+- **tomli >= 1.0.0** — only needed on Python < 3.11
+
+### Verify Installation
+
+Run a quick check to confirm the tool is available:
+
+```bash
+python -m complexity_accounting scan --help
+```
+
+If the command fails, install the package first. If the target codebase uses a non-Python language, install the corresponding extra (see above).
+
 ## Process
 
 Run an iterative loop. Each iteration: scan → identify → refactor → verify. Stop when the target is reached, the codebase is clean enough, or you've done 3 iterations on similar patterns.
