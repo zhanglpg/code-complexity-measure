@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-21
+
+### Added
+- **Class-level metrics**: `ClassMetrics` dataclass with WMC (Weighted Methods per Class), method count, total cognitive/cyclomatic complexity, and average method complexity. Supported across all 7 languages.
+- **Halstead metrics**: Operator/operand counting for Python (libcst) and all tree-sitter languages. Maintainability Index now uses the full SEI formula (`MI = 171 - 5.2*ln(HV) - 0.23*CC - 16.2*ln(LOC)`) when Halstead Volume is available. Falls back to simplified formula gracefully.
+- **Content-hash caching**: SHA-256 based file content caching in `.complexity-cache/` directory. Automatic cache invalidation on file changes or tool version updates. `--no-cache` CLI flag to bypass.
+- **HTML report output**: Self-contained HTML reports with embedded CSS and JavaScript. Sortable tables, NCS gauge, class metrics section. Use `--format html -o report.html`.
+- **SARIF 2.1.0 output**: GitHub Code Scanning compatible output. Hotspot functions reported as SARIF results with risk-based severity levels. Use `--format sarif`.
+- **Plugin architecture**: `LanguagePlugin` protocol for third-party language support. Entry-point discovery via `complexity_accounting.languages` group. `list-plugins` CLI command.
+- **`--format` flag**: Unified output format selection (`text`, `json`, `html`, `sarif`). `--json` remains as backward-compatible shorthand.
+- **`list-plugins` command**: Shows discovered language plugins and their extensions.
+- `halstead_volume` field on `FunctionMetrics` dataclass
+- `classes` field on `FileMetrics` dataclass
+- New modules: `halstead.py`, `cache.py`, `html_report.py`, `sarif.py`, `plugin.py`
+
+### Changed
+- `compute_mi()` now accepts optional `halstead_volume` parameter for improved accuracy
+- `ScanResult.to_dict()` includes `classes` array per file
+- `scan_file()` supports caching and plugin fallback for unknown file extensions
+- Human-readable output now shows top complex classes when present
+
 ## [0.2.0] - 2026-03-21
 
 ### Added

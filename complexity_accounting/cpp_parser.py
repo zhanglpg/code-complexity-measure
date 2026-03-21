@@ -43,6 +43,10 @@ class CppParser(TreeSitterParser):
     extra_increment_types = frozenset({"conditional_expression"})
     lambda_types = frozenset({"lambda_expression"})
 
+    # Class-level metrics
+    class_node_types = frozenset({"class_specifier", "struct_specifier"})
+    class_name_field = "name"
+
     # Cyclomatic config
     cyclomatic_node_types = frozenset({
         "if_statement", "for_statement", "for_range_loop",

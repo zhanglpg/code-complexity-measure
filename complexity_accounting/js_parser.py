@@ -44,6 +44,9 @@ class JsParser(TreeSitterParser):
     extra_increment_types = frozenset({"ternary_expression"})
     lambda_types = frozenset({"arrow_function"})
 
+    # Class-level metrics
+    class_node_types = frozenset({"class_declaration"})
+
     # Cyclomatic config
     cyclomatic_node_types = frozenset({
         "if_statement", "for_statement", "for_in_statement",

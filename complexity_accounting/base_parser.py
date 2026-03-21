@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from .scanner import FunctionMetrics, FileMetrics, compute_mi
+from .scanner import FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
 
 
 class TreeSitterParser:
@@ -59,6 +59,11 @@ class TreeSitterParser:
     # --- Cyclomatic complexity config ---------------------------------------
     cyclomatic_node_types: frozenset = frozenset()  # each increments by 1
 
+    # --- Class-level metrics config ------------------------------------------
+    class_node_types: frozenset = frozenset()  # e.g. {"class_declaration", "struct_specifier"}
+    class_name_field: str = "name"  # field name for class name node
+    class_body_field: str = "body"  # field name for class body node
+
     # --- Comment style (for line counting) ----------------------------------
     line_comment_prefix: str = "//"
     block_comment_start: str = "/*"
@@ -93,10 +98,12 @@ class TreeSitterParser:
         tree = parser.parse(source_bytes)
 
         functions = self.collect_functions(tree, str(path), source_bytes)
+        classes = self.collect_classes(tree, str(path), source_bytes, functions)
 
         return FileMetrics(
             path=str(path),
             functions=functions,
+            classes=classes,
             total_lines=total,
             code_lines=code,
             comment_lines=comment_lines,
@@ -158,6 +165,16 @@ class TreeSitterParser:
         cog, max_nest = self.compute_cognitive_complexity(body) if body else (0, 0)
         cyc = self.compute_cyclomatic_complexity(body) if body else 1
         nloc = node.end_point[0] - node.start_point[0] + 1
+
+        # Compute Halstead metrics for improved MI
+        halstead_vol = None
+        try:
+            from .halstead import compute_halstead_tree_sitter
+            h = compute_halstead_tree_sitter(node)
+            halstead_vol = h.volume if h.volume > 0 else None
+        except Exception:
+            pass
+
         return FunctionMetrics(
             name=name,
             qualified_name=qualified_name,
@@ -169,7 +186,8 @@ class TreeSitterParser:
             nloc=nloc,
             params=params_count,
             max_nesting=max_nest,
-            maintainability_index=compute_mi(nloc, cyc),
+            maintainability_index=compute_mi(nloc, cyc, halstead_vol),
+            halstead_volume=halstead_vol,
         )
 
     # -----------------------------------------------------------------------
@@ -352,3 +370,48 @@ class TreeSitterParser:
     def collect_functions(self, tree, file_path: str, source_bytes: bytes) -> List[FunctionMetrics]:
         """Extract function metrics from the parsed tree. Subclass must implement."""
         raise NotImplementedError
+
+    def collect_classes(self, tree, file_path: str, source_bytes: bytes,
+                        functions: List[FunctionMetrics]) -> List[ClassMetrics]:
+        """Extract class-level metrics by grouping functions under their enclosing classes.
+
+        Default implementation walks the tree looking for class_node_types and matches
+        methods by line range. Subclasses may override for language-specific behavior.
+        """
+        if not self.class_node_types:
+            return []
+
+        classes = []
+
+        def visit(node):
+            if node.type in self.class_node_types:
+                name_node = node.child_by_field_name(self.class_name_field)
+                if name_node is None:
+                    # Try direct child type_identifier (C++ style)
+                    for child in node.children:
+                        if child.type in ("type_identifier", "identifier", "name"):
+                            name_node = child
+                            break
+                class_name = name_node.text.decode() if name_node else "<unknown>"
+                start_line = node.start_point[0] + 1
+                end_line = node.end_point[0] + 1
+
+                # Methods are functions whose line range falls within this class
+                methods = [
+                    f for f in functions
+                    if f.line >= start_line and f.end_line <= end_line
+                ]
+
+                classes.append(ClassMetrics(
+                    name=class_name,
+                    file_path=file_path,
+                    line=start_line,
+                    end_line=end_line,
+                    methods=methods,
+                ))
+
+            for child in node.children:
+                visit(child)
+
+        visit(tree.root_node)
+        return classes

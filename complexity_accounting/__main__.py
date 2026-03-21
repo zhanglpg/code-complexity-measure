@@ -24,6 +24,16 @@ def _output_stream(args):
         yield sys.stdout
 
 
+def _get_format(args) -> str:
+    """Resolve output format from --format and --json flags."""
+    fmt = getattr(args, "format", None)
+    if fmt:
+        return fmt
+    if getattr(args, "json", False):
+        return "json"
+    return "text"
+
+
 def cmd_scan(args):
     """Run the scanner."""
     from pathlib import Path
@@ -57,6 +67,19 @@ def cmd_scan(args):
         overrides["include_tests"] = True
     config = merge_cli_overrides(config, **overrides)
 
+    # Set up caching
+    if not getattr(args, "no_cache", False):
+        try:
+            from .cache import MetricsCache
+            from .scanner import set_cache
+            cache_dir = os.path.join(
+                str(target) if target.is_dir() else str(target.parent),
+                ".complexity-cache"
+            )
+            set_cache(MetricsCache(cache_dir=cache_dir))
+        except Exception:
+            pass
+
     # Scan
     if target.is_file():
         result = ScanResult(files=[scan_file(str(target))])
@@ -66,6 +89,10 @@ def cmd_scan(args):
     else:
         print(f"Error: {target} not found", file=sys.stderr)
         sys.exit(1)
+
+    # Clean up cache
+    from .scanner import set_cache
+    set_cache(None)
 
     # Compute coupling and churn factors
     churn_factor = 1.0
@@ -98,8 +125,10 @@ def cmd_scan(args):
             config, churn_factor=churn_factor, coupling_factor=coupling_factor
         )
 
+    output_format = _get_format(args)
+
     with _output_stream(args) as out:
-        if args.json:
+        if output_format == "json":
             data = result.to_dict()
             data["summary"]["net_complexity_score"] = ncs
             data["summary"]["churn_factor"] = round(churn_factor, 4)
@@ -108,8 +137,26 @@ def cmd_scan(args):
             if explanation is not None:
                 data["explanation"] = explanation
             print(json.dumps(data, indent=2), file=out)
+
+        elif output_format == "html":
+            from .html_report import generate_html_report
+            data = result.to_dict()
+            data["summary"]["net_complexity_score"] = ncs
+            data["summary"]["churn_factor"] = round(churn_factor, 4)
+            data["summary"]["coupling_factor"] = round(coupling_factor, 4)
+            html = generate_html_report(
+                data, ncs, config=config, explanation=explanation, top_n=args.top
+            )
+            print(html, file=out)
+
+        elif output_format == "sarif":
+            from .sarif import generate_sarif, sarif_to_json
+            data = result.to_dict()
+            sarif = generate_sarif(data, config=config)
+            print(sarif_to_json(sarif), file=out)
+
         else:
-            # Human-readable summary
+            # Human-readable summary (text)
             print("=" * 60, file=out)
             print("  COMPLEXITY ACCOUNTING REPORT", file=out)
             print("=" * 60, file=out)
@@ -203,6 +250,25 @@ def cmd_scan(args):
                     )
                 print(file=out)
 
+            # Class metrics summary
+            all_classes = []
+            for fm in result.files:
+                all_classes.extend(fm.classes)
+            if all_classes:
+                all_classes.sort(key=lambda c: c.total_cognitive, reverse=True)
+                top_classes = all_classes[:10]
+                print(f"  Top {len(top_classes)} most complex classes:", file=out)
+                print(f"  {'─' * 56}", file=out)
+                for cls in top_classes:
+                    short_path = cls.file_path
+                    if len(short_path) > 30:
+                        short_path = "..." + short_path[-27:]
+                    print(
+                        f"    {cls.total_cognitive:3d} cog  {cls.wmc:3d} wmc  {cls.method_count:2d} methods  {cls.name:20s}  {short_path}:{cls.line}",
+                        file=out,
+                    )
+                print(file=out)
+
             print("=" * 60, file=out)
 
     # CI gate
@@ -260,6 +326,25 @@ def cmd_trend(args):
             print(file=out)
 
 
+def cmd_list_plugins(args):
+    """List discovered language plugins."""
+    from .plugin import list_plugins
+
+    plugins = list_plugins()
+    if not plugins:
+        print("No language plugins found.")
+        print()
+        print("Built-in languages: Python, Go, Java, JavaScript, TypeScript, Rust, C/C++")
+        print()
+        print("To create a plugin, implement the LanguagePlugin protocol and register")
+        print("it as an entry point under 'complexity_accounting.languages'.")
+    else:
+        print(f"{'Name':20s}  {'Extensions'}")
+        print(f"{'─' * 20}  {'─' * 30}")
+        for p in plugins:
+            print(f"{p['name']:20s}  {p['extensions']}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="complexity-accounting",
@@ -270,7 +355,13 @@ def main():
     # scan
     scan_p = subparsers.add_parser("scan", help="Scan files or directories")
     scan_p.add_argument("path", help="File or directory to scan")
-    scan_p.add_argument("--json", action="store_true")
+    scan_p.add_argument("--json", action="store_true", help="Output as JSON (shorthand for --format json)")
+    scan_p.add_argument(
+        "--format",
+        choices=["text", "json", "html", "sarif"],
+        default=None,
+        help="Output format (default: text)",
+    )
     scan_p.add_argument("--threshold", type=int, default=None)
     scan_p.add_argument("--top", type=int, default=20)
     scan_p.add_argument("--fail-above", type=float, default=None)
@@ -284,6 +375,9 @@ def main():
     scan_p.add_argument("--churn-commits", type=int, default=None)
     scan_p.add_argument("--no-churn", action="store_true", help="Disable churn factor")
     scan_p.add_argument("--no-coupling", action="store_true", help="Disable coupling factor")
+    scan_p.add_argument(
+        "--no-cache", action="store_true", help="Disable content-hash caching"
+    )
     scan_p.add_argument(
         "--ncs-model",
         choices=["multiplicative", "additive"],
@@ -343,6 +437,10 @@ def main():
         metavar="FILE",
     )
     trend_p.set_defaults(func=cmd_trend)
+
+    # list-plugins
+    plugins_p = subparsers.add_parser("list-plugins", help="List discovered language plugins")
+    plugins_p.set_defaults(func=cmd_list_plugins)
 
     args = parser.parse_args()
 

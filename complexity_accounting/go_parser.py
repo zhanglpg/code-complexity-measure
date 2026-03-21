@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .scanner import FunctionMetrics, FileMetrics, compute_mi
+from .scanner import FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
 from .base_parser import TreeSitterParser
 
 try:
@@ -99,6 +99,36 @@ class GoParser(TreeSitterParser):
                 ))
 
         return functions
+
+    def collect_classes(self, tree, file_path: str, source_bytes: bytes,
+                        functions: List[FunctionMetrics]) -> List[ClassMetrics]:
+        """Group Go methods by their receiver type into ClassMetrics."""
+        from collections import defaultdict
+        type_methods = defaultdict(list)
+        type_lines = {}
+
+        for fn in functions:
+            # qualified_name like "MyType.Method" indicates a method
+            if '.' in fn.qualified_name:
+                type_name = fn.qualified_name.rsplit('.', 1)[0]
+                type_methods[type_name].append(fn)
+                if type_name not in type_lines:
+                    type_lines[type_name] = (fn.line, fn.end_line)
+                else:
+                    prev = type_lines[type_name]
+                    type_lines[type_name] = (min(prev[0], fn.line), max(prev[1], fn.end_line))
+
+        classes = []
+        for type_name, methods in type_methods.items():
+            lines = type_lines[type_name]
+            classes.append(ClassMetrics(
+                name=type_name,
+                file_path=file_path,
+                line=lines[0],
+                end_line=lines[1],
+                methods=methods,
+            ))
+        return classes
 
 
 def _count_params(param_list_node) -> int:
