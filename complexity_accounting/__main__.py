@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from .models import ScanResult, get_language
 from .scanner import scan_file, scan_directory
 from .config import Config, load_config, merge_cli_overrides
+from . import __version__
 
 
 @contextmanager
@@ -376,6 +377,11 @@ def main():
     parser = argparse.ArgumentParser(
         prog="complexity-accounting",
         description="Complexity Accounting Tool — measure and track Net Complexity Score",
+    )
+    parser.add_argument(
+        "--version", "-V",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
