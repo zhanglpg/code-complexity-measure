@@ -30,7 +30,9 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
-    environment: pypi
+    # Note: If you configure a GitHub environment for deployment protection rules,
+    # you must also add the environment name to your PyPI trusted publisher config.
+    # See https://docs.pypi.org/trusted-publishers/troubleshooting/
     steps:
       - uses: actions/checkout@v5
 
