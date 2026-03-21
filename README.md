@@ -297,19 +297,47 @@ complexity_accounting/
 ## Installation
 
 ```bash
-# Core (Python analysis only)
+# Core (Python analysis only — uses libcst, no extra dependencies)
 pip install complexity-accounting
+```
 
-# With Go support
+### Install for Specific Languages
+
+Each non-Python language uses [tree-sitter](https://tree-sitter.github.io/) for parsing and is installed as an optional extra:
+
+```bash
+# Go
 pip install complexity-accounting[go]
 
-# With Java support
+# Java
 pip install complexity-accounting[java]
 
-# Everything
-pip install complexity-accounting[go,java]
+# TypeScript
+pip install complexity-accounting[ts]
 
-# Development
+# JavaScript
+pip install complexity-accounting[js]
+
+# Rust
+pip install complexity-accounting[rust]
+
+# C / C++
+pip install complexity-accounting[cpp]
+```
+
+You can combine multiple extras in a single install:
+
+```bash
+# Go + Java + TypeScript
+pip install complexity-accounting[go,java,ts]
+
+# All supported languages
+pip install complexity-accounting[go,java,ts,js,rust,cpp]
+```
+
+### Development
+
+```bash
 pip install complexity-accounting[dev]
 ```
 
