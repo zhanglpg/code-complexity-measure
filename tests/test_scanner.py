@@ -1017,6 +1017,401 @@ def test_scanner_legacy_main_top():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+def test_boolean_same_operator_chain():
+    """a and b and c should be +1 (same operator chain)."""
+    path = _write_temp("""
+        def check(a, b, c):
+            if a and b and c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and-chain: +1 = 2
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_mixed_operators():
+    """a and b or c should be +2 (operator change)."""
+    path = _write_temp("""
+        def check(a, b, c):
+            if a and b or c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and: +1, or (switch): +1 = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_three_operator_switches():
+    """a and b or c and d should be +3 (two switches)."""
+    path = _write_temp("""
+        def check(a, b, c, d):
+            if a and b or c and d:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and: +1, or (switch): +1, and (switch): +1 = 4
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Python match/case support
+# ---------------------------------------------------------------------------
+
+def test_match_case_cognitive():
+    """match adds +1+nesting, case arms don't add cognitive."""
+    path = _write_temp("""
+        def classify(x):
+            match x:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+                case _:
+                    return "other"
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # match: +1 (nesting=0) = 1
+        assert fn.cognitive_complexity == 1
+    finally:
+        os.unlink(path)
+
+
+def test_match_case_cyclomatic():
+    """Each case arm adds +1 to cyclomatic."""
+    path = _write_temp("""
+        def classify(x):
+            match x:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+                case _:
+                    return "other"
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # baseline: 1, case 1: +1, case 2: +1, case _: +1 = 4
+        assert fn.cyclomatic_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+def test_match_case_nested():
+    """match inside if increases nesting penalty."""
+    path = _write_temp("""
+        def classify(x, flag):
+            if flag:
+                match x:
+                    case 1:
+                        return "one"
+                    case _:
+                        return "other"
+            return None
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1 (nesting=0), match: +1+1 (nesting=1) = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def test_maintainability_index_simple():
+    """A simple function should have high MI."""
+    path = _write_temp("""
+        def add(a, b):
+            return a + b
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 50
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_complex():
+    """A complex function should have lower MI."""
+    path = _write_temp("""
+        def handle(request, data, config, options, flags):
+            if request.method == "POST":
+                if data.get("key"):
+                    for item in data["items"]:
+                        if item.get("valid"):
+                            for sub in item["children"]:
+                                if sub.get("active"):
+                                    if config.get("strict"):
+                                        if options.get("verbose"):
+                                            for flag in flags:
+                                                if flag == "debug":
+                                                    print("debug")
+            return None
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index < 80
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_in_scan_result():
+    """ScanResult should include avg MI in to_dict output."""
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fm = FileMetrics(path="test.py", functions=[
+        FunctionMetrics(
+            name="f", qualified_name="f", file_path="test.py",
+            line=1, end_line=5, cognitive_complexity=2,
+            cyclomatic_complexity=3, nloc=5, params=1, max_nesting=1,
+            maintainability_index=75.0,
+        ),
+    ])
+    result = ScanResult(files=[fm])
+    d = result.to_dict()
+    assert "avg_maintainability_index" in d["summary"]
+    assert d["summary"]["avg_maintainability_index"] == 75.0
+
+
+def test_compute_mi_function():
+    """compute_mi returns sensible values."""
+    from complexity_accounting.scanner import compute_mi
+    # Tiny function: high MI
+    assert compute_mi(3, 1) > 80
+    # Large complex function: lower MI
+    assert compute_mi(200, 30) < compute_mi(10, 2)
+    # Edge: 0 lines
+    assert compute_mi(0, 1) == 100.0
+
+
+def test_avg_maintainability_index_zero_functions():
+    """ScanResult with no functions returns 100.0 MI."""
+    result = ScanResult(files=[])
+    assert result.avg_maintainability_index == 100.0
+
+
+def test_avg_maintainability_index_multiple_functions():
+    """avg MI is averaged across all functions."""
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fm = FileMetrics(path="test.py", functions=[
+        FunctionMetrics(
+            name="f1", qualified_name="f1", file_path="test.py",
+            line=1, end_line=5, maintainability_index=80.0,
+        ),
+        FunctionMetrics(
+            name="f2", qualified_name="f2", file_path="test.py",
+            line=6, end_line=10, maintainability_index=60.0,
+        ),
+    ])
+    result = ScanResult(files=[fm])
+    assert result.avg_maintainability_index == 70.0
+
+
+def test_ncs_explained_includes_mi_fields():
+    """compute_ncs_explained includes MI-related fields."""
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config()
+        exp = result.compute_ncs_explained(config)
+        assert "mi_factor" in exp
+        assert "mi_contribution" in exp
+        assert "avg_maintainability_index" in exp
+        assert exp["mi_factor"] >= 1.0
+    finally:
+        os.unlink(path)
+
+
+def test_ncs_explained_zero_functions_mi_fields():
+    """Zero-function explained result includes MI defaults."""
+    result = ScanResult()
+    exp = result.compute_ncs_explained()
+    assert exp["mi_factor"] == 1.0
+    assert exp["avg_maintainability_index"] == 100.0
+    assert exp["mi_contribution"] == 0.0
+
+
+def test_ncs_additive_includes_mi_penalty():
+    """Additive NCS model includes MI penalty term."""
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config_no_mi = Config(ncs_model="additive", weight_mi=0.0)
+        config_mi = Config(ncs_model="additive", weight_mi=0.5)
+        ncs_no_mi = result.compute_ncs(config_no_mi)
+        ncs_mi = result.compute_ncs(config_mi)
+        # MI penalty should increase NCS (since MI < 100)
+        assert ncs_mi > ncs_no_mi
+    finally:
+        os.unlink(path)
+
+
+def test_ncs_additive_explained_mi_contribution():
+    """Additive model explained output includes MI contribution."""
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def func(x):
+            if x > 0:
+                return x
+            return -x
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config(ncs_model="additive", weight_mi=0.1)
+        exp = result.compute_ncs_explained(config)
+        assert exp["model"] == "additive"
+        assert "mi_contribution" in exp
+        # MI penalty should be > 0 since MI is < 100
+        assert exp["mi_contribution"] > 0
+    finally:
+        os.unlink(path)
+
+
+def test_ncs_multiplicative_mi_factor_high_mi():
+    """With high MI (>50), mi_factor should be 1.0 (no penalty)."""
+    from complexity_accounting.config import Config
+    path = _write_temp("""
+        def simple():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        config = Config()
+        exp = result.compute_ncs_explained(config)
+        # Simple function has MI > 50, so mi_factor = 1.0
+        assert exp["avg_maintainability_index"] > 50
+        assert exp["mi_factor"] == 1.0
+        assert exp["mi_contribution"] == 0.0
+    finally:
+        os.unlink(path)
+
+
+def test_ncs_dominant_factor_mi():
+    """MI can be the dominant factor when it has the largest contribution."""
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    from complexity_accounting.config import Config
+    # Craft a function with very low MI
+    fm = FileMetrics(path="test.py", functions=[
+        FunctionMetrics(
+            name="f", qualified_name="f", file_path="test.py",
+            line=1, end_line=5, cognitive_complexity=1,
+            cyclomatic_complexity=1, nloc=5, params=0, max_nesting=0,
+            maintainability_index=10.0,  # Very low MI
+        ),
+    ])
+    result = ScanResult(files=[fm])
+    config = Config()
+    exp = result.compute_ncs_explained(config)
+    # MI factor should be > 1 and could be dominant
+    assert exp["mi_factor"] > 1.0
+    assert exp["mi_contribution"] > 0
+
+
+def test_boolean_ops_standalone_or():
+    """a or b or c should be +1 (same operator chain)."""
+    path = _write_temp("""
+        def check(a, b, c):
+            if a or b or c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, or-chain: +1 = 2
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_ops_separate_conditions():
+    """Boolean ops in separate if statements each start fresh."""
+    path = _write_temp("""
+        def check(a, b, c, d):
+            if a and b:
+                pass
+            if c or d:
+                pass
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and: +1, if: +1, or: +1 = 4
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+def test_match_with_nested_if():
+    """if inside a match case arm gets nesting penalty from match."""
+    path = _write_temp("""
+        def process(cmd, flag):
+            match cmd:
+                case "start":
+                    if flag:
+                        return True
+                case _:
+                    return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # match: +1, if inside match (nesting=1): +1+1 = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+def test_scan_result_to_dict_includes_mi():
+    """to_dict includes maintainability_index in function details."""
+    path = _write_temp("""
+        def foo():
+            return 1
+    """)
+    try:
+        result = ScanResult(files=[scan_file(path)])
+        d = result.to_dict()
+        fn_data = d["files"][0]["functions"][0]
+        assert "maintainability_index" in fn_data
+        assert fn_data["maintainability_index"] > 0
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     # Simple test runner
     import traceback

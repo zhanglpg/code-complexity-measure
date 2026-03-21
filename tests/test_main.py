@@ -645,6 +645,131 @@ def test_cmd_scan_brief_text():
 
 
 # ---------------------------------------------------------------------------
+# Maintainability Index in output
+# ---------------------------------------------------------------------------
+
+def test_cmd_scan_mi_in_json():
+    """JSON output includes avg_maintainability_index."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        assert "avg_maintainability_index" in result["summary"]
+        assert result["summary"]["avg_maintainability_index"] > 0
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_mi_in_explanation_json():
+    """JSON explanation includes MI-related fields."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def func(x):
+            if x:
+                return x
+            return 0
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        exp = result["explanation"]
+        assert "mi_factor" in exp
+        assert "mi_contribution" in exp
+        assert "avg_maintainability_index" in exp
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_mi_in_text():
+    """Text output includes Avg MI line."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "Avg MI:" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_mi_effect_in_breakdown():
+    """Text NCS breakdown includes MI effect line."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def func(x):
+            if x:
+                return x
+            return 0
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        output = out.getvalue()
+        assert "MI effect:" in output
+        assert "avg_mi=" in output
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_mi_in_function_details_json():
+    """JSON function details include maintainability_index."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, b"def hello(): pass\n")
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        fn_data = result["files"][0]["functions"][0]
+        assert "maintainability_index" in fn_data
+    finally:
+        os.unlink(path)
+
+
+def test_cmd_scan_additive_mi_in_explanation():
+    """Additive model JSON explanation includes MI contribution."""
+    fd, path = tempfile.mkstemp(suffix=".py")
+    os.write(fd, textwrap.dedent("""
+        def func(x):
+            if x:
+                return x
+            return 0
+    """).encode())
+    os.close(fd)
+    try:
+        args = _make_scan_args(path=path, json=True, ncs_model="additive")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd_scan(args)
+        result = json.loads(out.getvalue())
+        exp = result["explanation"]
+        assert exp["model"] == "additive"
+        assert "mi_contribution" in exp
+        # MI is < 100 so penalty > 0
+        assert exp["mi_contribution"] > 0
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
 

@@ -490,6 +490,74 @@ def test_no_methods():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+def test_boolean_same_operator_chain():
+    """a && b && c should be +1 (same operator chain)."""
+    path = _write_temp_java("""
+        public class T {
+            public boolean check(boolean a, boolean b, boolean c) {
+                if (a && b && c) {
+                    return true;
+                }
+                return false;
+            }
+        }
+    """)
+    try:
+        fm = scan_java_file(path)
+        fn = fm.functions[0]
+        # if: +1, &&-chain: +1 = 2
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_three_switches():
+    """a && b || c && d should be +3 operator increments."""
+    path = _write_temp_java("""
+        public class T {
+            public boolean check(boolean a, boolean b, boolean c, boolean d) {
+                if (a && b || c && d) {
+                    return true;
+                }
+                return false;
+            }
+        }
+    """)
+    try:
+        fm = scan_java_file(path)
+        fn = fm.functions[0]
+        # if: +1, &&: +1, || (switch): +1, && (switch): +1 = 4
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def test_maintainability_index_computed():
+    """Java functions should have MI computed."""
+    path = _write_temp_java("""
+        public class T {
+            public int simple() {
+                return 1;
+            }
+        }
+    """)
+    try:
+        fm = scan_java_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 0
+        assert fn.maintainability_index <= 100
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     import traceback
 

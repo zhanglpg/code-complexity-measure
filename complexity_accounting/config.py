@@ -41,6 +41,7 @@ class Config:
     weight_hotspot: float = 0.2
     weight_churn: float = 0.1
     weight_coupling: float = 0.1
+    weight_mi: float = 0.1
 
     # Churn settings
     churn_days: int = 90
@@ -85,6 +86,7 @@ _KEY_MAP = {
     "churn-days": "churn_days",
     "churn-commits": "churn_commits",
     "include-tests": "include_tests",
+    "weight-mi": "weight_mi",
 }
 
 

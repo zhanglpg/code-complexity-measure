@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .scanner import FunctionMetrics, FileMetrics
+from .scanner import FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -42,7 +42,7 @@ def _compute_cognitive_complexity(node) -> tuple:
     complexity = 0
     max_nesting = 0
 
-    def walk(n, nesting):
+    def walk(n, nesting, parent_bool_op=None):
         nonlocal complexity, max_nesting
 
         if n.type == "if_expression":
@@ -114,15 +114,16 @@ def _compute_cognitive_complexity(node) -> tuple:
             return
 
         if n.type == "binary_expression":
-            has_bool_op = False
+            op_type = None
             for child in n.children:
                 if child.type in ("&&", "||"):
-                    has_bool_op = True
+                    op_type = child.type
                     break
-            if has_bool_op:
-                complexity += 1
+            if op_type:
+                if op_type != parent_bool_op:
+                    complexity += 1
                 for child in n.children:
-                    walk(child, nesting)
+                    walk(child, nesting, parent_bool_op=op_type)
                 return
 
         if n.type == "try_expression":
@@ -265,6 +266,7 @@ def _collect_functions(tree, file_path: str, source: bytes) -> List[FunctionMetr
             cog, max_nest = _compute_cognitive_complexity(body) if body else (0, 0)
             cyc = _compute_cyclomatic_complexity(body) if body else 1
 
+            nloc = node.end_point[0] - node.start_point[0] + 1
             functions.append(FunctionMetrics(
                 name=name,
                 qualified_name=qualified,
@@ -273,9 +275,10 @@ def _collect_functions(tree, file_path: str, source: bytes) -> List[FunctionMetr
                 end_line=node.end_point[0] + 1,
                 cognitive_complexity=cog,
                 cyclomatic_complexity=cyc,
-                nloc=node.end_point[0] - node.start_point[0] + 1,
+                nloc=nloc,
                 params=_count_params(params_node) if params_node else 0,
                 max_nesting=max_nest,
+                maintainability_index=compute_mi(nloc, cyc),
             ))
             return
 

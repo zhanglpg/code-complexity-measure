@@ -19,6 +19,7 @@ The cognitive complexity algorithm follows SonarSource's specification:
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from dataclasses import dataclass, field, asdict
@@ -102,6 +103,24 @@ def walk_node(node, visitor):
 
 
 # ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def compute_mi(nloc: int, cyclomatic: int) -> float:
+    """
+    Compute Maintainability Index (simplified SEI/Visual Studio formula).
+
+    MI = max(0, min(100, (171 - 21.4 * ln(nloc) - 0.23 * cyclomatic) * 100 / 171))
+
+    Scale: 0-100, higher is more maintainable.
+    """
+    if nloc <= 0:
+        return 100.0
+    raw = 171.0 - 21.4 * math.log(nloc) - 0.23 * cyclomatic
+    return round(max(0.0, min(100.0, raw * 100.0 / 171.0)), 2)
+
+
+# ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
 
@@ -117,6 +136,7 @@ class FunctionMetrics:
     nloc: int = 0  # non-blank, non-comment lines
     params: int = 0
     max_nesting: int = 0
+    maintainability_index: float = 100.0
     
     @property
     def risk_level(self) -> str:
@@ -188,7 +208,18 @@ class ScanResult:
     @property
     def total_functions(self) -> int:
         return sum(f.function_count for f in self.files)
-    
+
+    @property
+    def avg_maintainability_index(self) -> float:
+        if self.total_functions == 0:
+            return 100.0
+        total_mi = sum(
+            fn.maintainability_index
+            for f in self.files
+            for fn in f.functions
+        )
+        return round(total_mi / self.total_functions, 2)
+
     @property
     def net_complexity_score(self) -> float:
         """
@@ -211,6 +242,7 @@ class ScanResult:
 
         avg_cog = self.total_cognitive / self.total_functions
         avg_cyc = self.total_cyclomatic / self.total_functions
+        avg_mi = self.avg_maintainability_index
 
         # Language-aware hotspot counting
         hotspots = 0
@@ -220,8 +252,11 @@ class ScanResult:
             hotspots += len(f.hotspots(t))
         hotspot_ratio = hotspots / self.total_functions
 
+        # MI factor: penalizes when avg MI drops below 50 (scale 1.0–2.0)
+        mi_factor = 1.0 + max(0.0, (50.0 - avg_mi) / 50.0)
+
         base = w_cog * avg_cog + w_cyc * avg_cyc
-        return model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, churn_factor, coupling_factor
+        return model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, churn_factor, coupling_factor, mi_factor, avg_mi
 
     def compute_ncs(
         self,
@@ -243,7 +278,7 @@ class ScanResult:
         if self.total_functions == 0:
             return 0.0
 
-        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf = (
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi = (
             self._compute_internals(config, churn_factor, coupling_factor)
         )
 
@@ -251,15 +286,17 @@ class ScanResult:
             hotspot_penalty = hotspot_ratio * 10
             churn_penalty = (cf - 1.0) * 10
             coupling_penalty = (cpf - 1.0) * 10
+            mi_penalty = (100.0 - avg_mi) / 10.0
             return round(
                 base
                 + config.weight_hotspot * hotspot_penalty
                 + config.weight_churn * churn_penalty
-                + config.weight_coupling * coupling_penalty,
+                + config.weight_coupling * coupling_penalty
+                + config.weight_mi * mi_penalty,
                 2,
             )
 
-        return round(base * (1 + hotspot_ratio) * cf * cpf, 2)
+        return round(base * (1 + hotspot_ratio) * cf * cpf * mif, 2)
 
     def compute_ncs_explained(
         self,
@@ -282,13 +319,16 @@ class ScanResult:
                 "hotspot_ratio": 0.0,
                 "churn_factor": churn_factor,
                 "coupling_factor": coupling_factor,
+                "mi_factor": 1.0,
+                "avg_maintainability_index": 100.0,
                 "hotspot_contribution": 0.0,
                 "churn_contribution": 0.0,
                 "coupling_contribution": 0.0,
+                "mi_contribution": 0.0,
                 "dominant_factor": "none",
             }
 
-        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf = (
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi = (
             self._compute_internals(config, churn_factor, coupling_factor)
         )
 
@@ -296,19 +336,23 @@ class ScanResult:
             hotspot_contrib = config.weight_hotspot * (hotspot_ratio * 10)
             churn_contrib = config.weight_churn * ((cf - 1.0) * 10)
             coupling_contrib = config.weight_coupling * ((cpf - 1.0) * 10)
-            ncs = round(base + hotspot_contrib + churn_contrib + coupling_contrib, 2)
+            mi_contrib = config.weight_mi * ((100.0 - avg_mi) / 10.0)
+            ncs = round(base + hotspot_contrib + churn_contrib + coupling_contrib + mi_contrib, 2)
         else:
             after_hotspot = base * (1 + hotspot_ratio)
             after_churn = after_hotspot * cf
-            ncs = round(after_churn * cpf, 2)
+            after_coupling = after_churn * cpf
+            ncs = round(after_coupling * mif, 2)
             hotspot_contrib = after_hotspot - base
             churn_contrib = after_churn - after_hotspot
-            coupling_contrib = (after_churn * cpf) - after_churn
+            coupling_contrib = after_coupling - after_churn
+            mi_contrib = (after_coupling * mif) - after_coupling
 
         contribs = {
             "hotspot": hotspot_contrib,
             "churn": churn_contrib,
             "coupling": coupling_contrib,
+            "mi": mi_contrib,
         }
         dominant = max(contribs, key=lambda k: abs(contribs[k]))
         if all(v == 0 for v in contribs.values()):
@@ -323,9 +367,12 @@ class ScanResult:
             "hotspot_ratio": round(hotspot_ratio, 4),
             "churn_factor": round(cf, 4),
             "coupling_factor": round(cpf, 4),
+            "mi_factor": round(mif, 4),
+            "avg_maintainability_index": round(avg_mi, 2),
             "hotspot_contribution": round(hotspot_contrib, 4),
             "churn_contribution": round(churn_contrib, 4),
             "coupling_contribution": round(coupling_contrib, 4),
+            "mi_contribution": round(mi_contrib, 4),
             "dominant_factor": dominant,
         }
     
@@ -341,6 +388,7 @@ class ScanResult:
                     self.total_cognitive / max(self.total_functions, 1), 2
                 ),
                 "hotspot_count": sum(len(f.hotspots()) for f in self.files),
+                "avg_maintainability_index": self.avg_maintainability_index,
             },
             "files": [
                 {
@@ -383,7 +431,7 @@ class CognitiveComplexityVisitor(cst.CSTVisitor):
         self.complexity = 0
         self.nesting = 0
         self.max_nesting = 0
-        self._in_boolean_op = False
+        self._bool_op_stack = []  # stack of boolean operator types
     
     # -- nesting increments --
     
@@ -432,8 +480,19 @@ class CognitiveComplexityVisitor(cst.CSTVisitor):
     def leave_With(self, node: cst.With) -> None:
         self.nesting -= 1
     
+    # -- match/case (Python 3.10+) --
+
+    def visit_Match(self, node: cst.Match) -> Optional[bool]:
+        self.complexity += 1 + self.nesting
+        self.nesting += 1
+        self.max_nesting = max(self.max_nesting, self.nesting)
+        return True
+
+    def leave_Match(self, node: cst.Match) -> None:
+        self.nesting -= 1
+
     # -- flat increments (no nesting penalty) --
-    
+
     def visit_IfExp(self, node: cst.IfExp) -> Optional[bool]:
         """Ternary expression: +1, no nesting."""
         self.complexity += 1
@@ -443,16 +502,19 @@ class CognitiveComplexityVisitor(cst.CSTVisitor):
     
     def visit_BooleanOperation(self, node: cst.BooleanOperation) -> Optional[bool]:
         """
-        Each sequence of same boolean operators counts as +1.
-        Mixed operators (a and b or c) count as +1 for each switch.
+        SonarSource-style boolean operator scoring:
+        - Same-operator chain (a and b and c): +1 total
+        - Each operator change adds +1 (a and b or c): +2
         """
-        if not self._in_boolean_op:
+        op_type = type(node.operator)
+        parent_op = self._bool_op_stack[-1] if self._bool_op_stack else None
+        if op_type != parent_op:
             self.complexity += 1
-            self._in_boolean_op = True
+        self._bool_op_stack.append(op_type)
         return True
-    
+
     def leave_BooleanOperation(self, node: cst.BooleanOperation) -> None:
-        self._in_boolean_op = False
+        self._bool_op_stack.pop()
     
     # -- flow breaks --
     
@@ -518,6 +580,10 @@ class CyclomaticComplexityVisitor(cst.CSTVisitor):
         return True
     
     def visit_Assert(self, node: cst.Assert) -> Optional[bool]:
+        self.complexity += 1
+        return True
+
+    def visit_MatchCase(self, node: cst.MatchCase) -> Optional[bool]:
         self.complexity += 1
         return True
 
@@ -607,6 +673,7 @@ class FunctionCollector(cst.CSTVisitor):
             nloc=nloc,
             params=self._count_params(node.params),
             max_nesting=cog_visitor.max_nesting,
+            maintainability_index=compute_mi(nloc, cyc_visitor.complexity),
         )
         self.functions.append(fm)
         

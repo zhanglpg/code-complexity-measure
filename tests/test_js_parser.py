@@ -515,6 +515,117 @@ def test_export_function():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+def test_boolean_same_operator_chain():
+    """a && b && c should be +1 (same operator chain)."""
+    path = _write_temp_js("""
+        function check(a, b, c) {
+            if (a && b && c) {
+                return true;
+            }
+            return false;
+        }
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 2  # if + &&-chain
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_mixed_operators():
+    """a && b || c should be +2 (operator change)."""
+    path = _write_temp_js("""
+        function check(a, b, c) {
+            if (a && b || c) {
+                return true;
+            }
+            return false;
+        }
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 3  # if + && + || switch
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_nullish_coalescing():
+    """?? should be tracked separately from &&/||."""
+    path = _write_temp_js("""
+        function check(a, b) {
+            if (a ?? b) {
+                return true;
+            }
+            return false;
+        }
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 2  # if + ??
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_three_switches():
+    """a && b || c && d should be +3."""
+    path = _write_temp_js("""
+        function check(a, b, c, d) {
+            if (a && b || c && d) {
+                return true;
+            }
+            return false;
+        }
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def test_maintainability_index_computed():
+    """JS functions should have MI computed."""
+    path = _write_temp_js("""
+        function simple() {
+            return 1;
+        }
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 0
+        assert fn.maintainability_index <= 100
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_arrow_function():
+    """Arrow functions assigned to variables should have MI computed."""
+    path = _write_temp_js("""
+        const add = (a, b) => {
+            return a + b;
+        };
+    """)
+    try:
+        fm = scan_js_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 0
+    finally:
+        os.unlink(path)
+
+
 if __name__ == "__main__":
     import traceback
 
