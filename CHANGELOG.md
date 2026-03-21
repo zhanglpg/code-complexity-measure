@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-03-21
+## [1.6.0] - 2026-03-21
 
 ### Added
 - **Class-level metrics**: `ClassMetrics` dataclass with WMC (Weighted Methods per Class), method count, total cognitive/cyclomatic complexity, and average method complexity. Supported across all 7 languages.
