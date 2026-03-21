@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from .scanner import FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
+from .models import FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
 
 
 class TreeSitterParser:

@@ -6,7 +6,8 @@ import json
 import os
 from contextlib import contextmanager
 
-from .scanner import scan_file, scan_directory, ScanResult, get_language
+from .models import ScanResult, get_language
+from .scanner import scan_file, scan_directory
 from .config import Config, load_config, merge_cli_overrides
 
 

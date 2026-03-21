@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from . import __version__
-from .scanner import FileMetrics, FunctionMetrics, ClassMetrics
+from .models import FileMetrics, FunctionMetrics, ClassMetrics
 
 # Default cache directory (relative to project root)
 DEFAULT_CACHE_DIR = ".complexity-cache"

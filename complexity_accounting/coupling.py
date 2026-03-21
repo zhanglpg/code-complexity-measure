@@ -302,7 +302,7 @@ def analyze_file_coupling_treesitter(file_path: str, language: str) -> CouplingM
 
 def analyze_file_coupling_any(file_path: str) -> CouplingMetrics:
     """Analyze imports in any supported source file."""
-    from .scanner import EXTENSION_LANGUAGE_MAP
+    from .models import EXTENSION_LANGUAGE_MAP
 
     ext = Path(file_path).suffix.lower()
     language = EXTENSION_LANGUAGE_MAP.get(ext)
@@ -322,36 +322,18 @@ def analyze_directory_coupling(
     include_tests: bool = False,
 ) -> Dict[str, CouplingMetrics]:
     """Analyze coupling for all supported source files in a directory."""
-    from fnmatch import fnmatch
-    from .scanner import TEST_FILE_PATTERNS, SUPPORTED_EXTENSIONS
-
-    if exclude_patterns is None:
-        exclude_patterns = [
-            "**/venv/**", "**/.venv/**", "**/node_modules/**",
-            "**/__pycache__/**", "**/build/**", "**/dist/**",
-            "**/.git/**", "**/migrations/**",
-        ]
-
     root = Path(directory)
     if root.is_file():
         metrics = analyze_file_coupling_any(str(root))
         return {str(root): metrics}
 
+    from .scanner import discover_files
+
     results: Dict[str, CouplingMetrics] = {}
-    for source_file in sorted(root.rglob("*")):
-        if source_file.suffix not in SUPPORTED_EXTENSIONS:
-            continue
-        rel = str(source_file.relative_to(root))
-        skip = any(
-            fnmatch(rel, pat) or fnmatch(str(source_file), pat)
-            for pat in exclude_patterns
-        )
-        if skip:
-            continue
-        if not include_tests and any(fnmatch(rel, pat) for pat in TEST_FILE_PATTERNS):
-            continue
+    for file_path in discover_files(directory, exclude_patterns, include_tests):
+        rel = str(Path(file_path).relative_to(root))
         try:
-            results[rel] = analyze_file_coupling_any(str(source_file))
+            results[rel] = analyze_file_coupling_any(file_path)
         except Exception:
             continue
     return results

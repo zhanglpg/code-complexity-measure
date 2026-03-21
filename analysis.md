@@ -150,28 +150,68 @@ Key function change:
 
 ---
 
+## Iteration 4: Architectural Refactoring — Module Extraction
+
+### Changes Made
+- **Extracted `models.py`** from `scanner.py`: moved all data models (FunctionMetrics, ClassMetrics, FileMetrics, ScanResult), compute_mi(), constants (SUPPORTED_EXTENSIONS, TEST_FILE_PATTERNS, EXTENSION_LANGUAGE_MAP), and get_language() to a standalone module with no parsing dependencies
+- **Updated imports across 10 files**: base_parser, all 6 language parsers, cache, plugin, git_tracker, __main__ — all now import data models from `models.py` instead of `scanner.py`
+- **Extracted `discover_files()`** helper in scanner.py to share file discovery logic
+- **Refactored `coupling.py`**: `analyze_directory_coupling()` now uses scanner's `discover_files()` instead of duplicating directory-walking logic; imports constants from `models.py` instead of `scanner.py`
+- **scanner.py reduced** from ~1000 lines to ~540 lines (Python parsing + scanning API only)
+
+### Metrics After
+
+| Metric | Iter 3 | Iter 4 (Arch) | Change |
+|--------|--------|---------------|--------|
+| NCS | 7.01 | 6.80 | -0.21 (-3%) |
+| Files scanned | 19 | 20 | +1 (models.py) |
+| Functions | 215 | 216 | +1 |
+| Hotspots (>=10) | 32 | 32 | 0 |
+| Avg cognitive/func | 4.51 | 4.44 | -0.07 |
+| Avg MI | 65.03 | 65.12 | +0.09 |
+| **Coupling factor** | **1.286** | **1.265** | **-0.021** |
+| Churn factor | 1.133 | 1.136 | +0.003 |
+
+Key function changes:
+- `scan_directory`: CC 27 → 14 (now delegates to `discover_files`)
+- `analyze_directory_coupling`: CC 17 → dropped off top 30 (uses `discover_files`)
+- `discover_files` new function at CC=13
+
+### Analysis
+
+**The coupling factor dropped**, confirming that architectural changes directly affect the metric the tool measures. This is the first iteration where the coupling factor (the dominant NCS contributor) actually improved.
+
+**Notable observations:**
+1. **Coupling reduction was modest but real** (-0.021). By moving data models to `models.py`, 10 modules that previously imported from `scanner.py` now import from a lightweight `models.py` that has zero internal dependencies. This reduced scanner.py's fan-in and spread imports more evenly.
+2. **MI improved slightly** (+0.09) because `models.py` is a clean module of pure data classes — high maintainability. And scanner.py is now shorter with clearer purpose.
+3. **Eliminating duplicated file discovery** had a direct cognitive complexity benefit: `scan_directory` dropped from CC=27 to CC=14, and `analyze_directory_coupling` dropped off the top 30 entirely.
+4. **The coupling factor is still dominant** at 1.265. This reflects a structural reality: even with models extracted, the codebase still has many inter-module dependencies (parsers import from models + base_parser, scanner imports from models, etc.). Further coupling reduction would require more aggressive module consolidation.
+5. **Architectural refactoring yielded smaller NCS improvement than expected.** The coupling factor formula `1 + avg/max` is inherently bounded. The max coupling file still has significant imports, so even though avg coupling dropped, the ratio changed only slightly.
+
+---
+
 ## Final Assessment
 
 ### Overall NCS Progression
 
-| Metric | Baseline | Iter 1 | Iter 2 | Iter 3 | Total Change |
-|--------|----------|--------|--------|--------|-------------|
-| **NCS** | **9.17** | **7.60** | **7.16** | **7.01** | **-2.16 (-24%)** |
-| Rating | Concerning | Concerning | Concerning | Concerning | — |
-| Functions | 204 | 212 | 215 | 215 | +11 |
-| Hotspots | 32 | 31 | 32 | 32 | 0 |
-| Avg cog/func | 5.79 | 4.98 | 4.63 | 4.51 | -1.28 (-22%) |
-| Avg MI | 65.08 | 64.92 | 65.01 | 65.03 | -0.05 |
-| Coupling | 1.351 | 1.286 | 1.286 | 1.286 | -0.065 |
-| Churn | 1.133 | 1.133 | 1.133 | 1.133 | 0 |
+| Metric | Baseline | Iter 1 | Iter 2 | Iter 3 | Iter 4 (Arch) | Total Change |
+|--------|----------|--------|--------|--------|---------------|-------------|
+| **NCS** | **9.17** | **7.60** | **7.16** | **7.01** | **6.80** | **-2.37 (-26%)** |
+| Rating | Concerning | Concerning | Concerning | Concerning | Concerning | — |
+| Functions | 204 | 212 | 215 | 215 | 216 | +12 |
+| Hotspots | 32 | 31 | 32 | 32 | 32 | 0 |
+| Avg cog/func | 5.79 | 4.98 | 4.63 | 4.51 | 4.44 | -1.35 (-23%) |
+| Avg MI | 65.08 | 64.92 | 65.01 | 65.03 | 65.12 | +0.04 |
+| Coupling | 1.351 | 1.286 | 1.286 | 1.286 | 1.265 | -0.086 |
+| Churn | 1.133 | 1.133 | 1.133 | 1.133 | 1.136 | +0.003 |
 
 ### Does NCS Effectively Capture Code Quality Improvements?
 
-**Yes, with caveats.** The NCS metric tracked our refactoring improvements faithfully across all 3 iterations:
+**Yes, with caveats.** The NCS metric tracked our refactoring improvements faithfully across all 4 iterations:
 
-1. **Proportional tracking**: NCS dropped 24% total, closely matching the 22% reduction in avg cognitive complexity per function. The multiplicative model means other factors (coupling, churn) amplify or dampen cognitive improvements.
+1. **Proportional tracking**: NCS dropped 26% total, closely matching the 23% reduction in avg cognitive complexity per function. The multiplicative model means other factors (coupling, churn) amplify or dampen cognitive improvements.
 
-2. **Dominant factor persistence**: Coupling remained the dominant factor throughout (1.286-1.351x multiplier). None of our refactorings reduced import coupling, so NCS couldn't drop below what the coupling factor allows. This is **correct behavior** — coupling is an independent quality dimension that structural refactoring alone doesn't fix.
+2. **Dominant factor persistence with architectural sensitivity**: Coupling remained dominant throughout, but Iteration 4 (module extraction) proved that architectural changes DO reduce it. Structural refactoring (Iters 1-3) didn't affect coupling; architectural refactoring (Iter 4) did. The metric correctly distinguishes between these two types of improvement.
 
 3. **Hotspot count stability**: Despite dramatic reductions in individual function complexity (cmd_scan: 141→18, compute_cognitive_complexity: 70→45), the total hotspot count barely changed (32→32). This is because extracted helpers often remain above the threshold, and the threshold is applied uniformly. The NCS formula uses hotspot _ratio_, which smoothly captured the improvement in avg complexity even when count stayed flat.
 
@@ -184,7 +224,7 @@ Key function change:
 ### What NCS Could Better Capture
 
 - **Hotspot threshold as a cliff**: The binary hotspot classification (above/below threshold) doesn't capture the magnitude of hotspot reduction. A function going from CC=141 to CC=18 is a massive improvement, but if it stays above threshold=10, it still counts as 1 hotspot. A **weighted hotspot score** (e.g., sum of excess complexity above threshold) would be more sensitive.
-- **Coupling dominance**: With coupling as a multiplicative factor, it can overshadow cognitive improvements. The coupling factor of 1.286 adds 28.6% to the NCS regardless of how clean the code is. For self-referential projects (tools that analyze code import code-analysis libraries), coupling is inherently high.
+- **Coupling formula sensitivity**: The formula `1 + avg/max` is bounded and insensitive to changes in the middle of the distribution. When the max coupling file remains unchanged, redistributing imports has limited effect. Consider using a percentile-based or Gini-coefficient approach for coupling.
 - **Function count effect**: Adding more functions (via extraction) dilutes avg complexity but doesn't change total complexity. NCS uses averages, which means splitting one CC=100 function into 5 CC=20 functions looks like improvement even though total complexity is unchanged. This is arguably correct (smaller functions ARE more maintainable) but could be supplemented with a total complexity metric.
 
 ### Recommendations
@@ -192,5 +232,6 @@ Key function change:
 1. The NCS metric is **effective for tracking relative improvements** over time within a codebase
 2. The **multiplicative model** correctly weights multiple quality dimensions and prevents gaming any single metric
 3. Consider adding a **weighted hotspot severity** metric alongside binary hotspot count
-4. The **coupling factor** may need calibration for small/self-contained projects where high coupling is structural rather than a design issue
-5. **3 iterations of structural refactoring** is sufficient — further improvements require architectural changes (reducing coupling, extracting modules) rather than function-level decomposition
+4. The **coupling factor formula** (`1 + avg/max`) could be more sensitive — consider alternatives that reward reducing the max coupling, not just the average
+5. **Structural refactoring** (function decomposition) primarily improves cognitive complexity; **architectural refactoring** (module extraction) is needed to improve coupling. The NCS metric correctly requires both types of improvement for significant score reduction
+6. **4 iterations** brought NCS from 9.17 to 6.80 (26% reduction). The remaining score (6.80) reflects inherent complexity of the domain — a complexity measurement tool analyzing code has naturally moderate coupling and non-trivial logic
