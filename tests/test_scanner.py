@@ -1017,6 +1017,199 @@ def test_scanner_legacy_main_top():
         os.unlink(path)
 
 
+# ---------------------------------------------------------------------------
+# Boolean operator tracking (SonarSource spec)
+# ---------------------------------------------------------------------------
+
+def test_boolean_same_operator_chain():
+    """a and b and c should be +1 (same operator chain)."""
+    path = _write_temp("""
+        def check(a, b, c):
+            if a and b and c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and-chain: +1 = 2
+        assert fn.cognitive_complexity == 2
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_mixed_operators():
+    """a and b or c should be +2 (operator change)."""
+    path = _write_temp("""
+        def check(a, b, c):
+            if a and b or c:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and: +1, or (switch): +1 = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+def test_boolean_three_operator_switches():
+    """a and b or c and d should be +3 (two switches)."""
+    path = _write_temp("""
+        def check(a, b, c, d):
+            if a and b or c and d:
+                return True
+            return False
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1, and: +1, or (switch): +1, and (switch): +1 = 4
+        assert fn.cognitive_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Python match/case support
+# ---------------------------------------------------------------------------
+
+def test_match_case_cognitive():
+    """match adds +1+nesting, case arms don't add cognitive."""
+    path = _write_temp("""
+        def classify(x):
+            match x:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+                case _:
+                    return "other"
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # match: +1 (nesting=0) = 1
+        assert fn.cognitive_complexity == 1
+    finally:
+        os.unlink(path)
+
+
+def test_match_case_cyclomatic():
+    """Each case arm adds +1 to cyclomatic."""
+    path = _write_temp("""
+        def classify(x):
+            match x:
+                case 1:
+                    return "one"
+                case 2:
+                    return "two"
+                case _:
+                    return "other"
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # baseline: 1, case 1: +1, case 2: +1, case _: +1 = 4
+        assert fn.cyclomatic_complexity == 4
+    finally:
+        os.unlink(path)
+
+
+def test_match_case_nested():
+    """match inside if increases nesting penalty."""
+    path = _write_temp("""
+        def classify(x, flag):
+            if flag:
+                match x:
+                    case 1:
+                        return "one"
+                    case _:
+                        return "other"
+            return None
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        # if: +1 (nesting=0), match: +1+1 (nesting=1) = 3
+        assert fn.cognitive_complexity == 3
+    finally:
+        os.unlink(path)
+
+
+# ---------------------------------------------------------------------------
+# Maintainability Index
+# ---------------------------------------------------------------------------
+
+def test_maintainability_index_simple():
+    """A simple function should have high MI."""
+    path = _write_temp("""
+        def add(a, b):
+            return a + b
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index > 50
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_complex():
+    """A complex function should have lower MI."""
+    path = _write_temp("""
+        def handle(request, data, config, options, flags):
+            if request.method == "POST":
+                if data.get("key"):
+                    for item in data["items"]:
+                        if item.get("valid"):
+                            for sub in item["children"]:
+                                if sub.get("active"):
+                                    if config.get("strict"):
+                                        if options.get("verbose"):
+                                            for flag in flags:
+                                                if flag == "debug":
+                                                    print("debug")
+            return None
+    """)
+    try:
+        fm = scan_file(path)
+        fn = fm.functions[0]
+        assert fn.maintainability_index < 80
+    finally:
+        os.unlink(path)
+
+
+def test_maintainability_index_in_scan_result():
+    """ScanResult should include avg MI in to_dict output."""
+    from complexity_accounting.scanner import FunctionMetrics, FileMetrics
+    fm = FileMetrics(path="test.py", functions=[
+        FunctionMetrics(
+            name="f", qualified_name="f", file_path="test.py",
+            line=1, end_line=5, cognitive_complexity=2,
+            cyclomatic_complexity=3, nloc=5, params=1, max_nesting=1,
+            maintainability_index=75.0,
+        ),
+    ])
+    result = ScanResult(files=[fm])
+    d = result.to_dict()
+    assert "avg_maintainability_index" in d["summary"]
+    assert d["summary"]["avg_maintainability_index"] == 75.0
+
+
+def test_compute_mi_function():
+    """compute_mi returns sensible values."""
+    from complexity_accounting.scanner import compute_mi
+    # Tiny function: high MI
+    assert compute_mi(3, 1) > 80
+    # Large complex function: lower MI
+    assert compute_mi(200, 30) < compute_mi(10, 2)
+    # Edge: 0 lines
+    assert compute_mi(0, 1) == 100.0
+
+
 if __name__ == "__main__":
     # Simple test runner
     import traceback

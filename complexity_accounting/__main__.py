@@ -121,6 +121,7 @@ def cmd_scan(args):
             print(f"  Churn factor:         {churn_factor:.3f}")
         if coupling_factor != 1.0:
             print(f"  Coupling factor:      {coupling_factor:.3f}")
+        print(f"  Avg MI:               {s['avg_maintainability_index']}")
         print()
 
         # Explain breakdown
@@ -143,6 +144,10 @@ def cmd_scan(args):
             print(
                 f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
                 f"  (factor={explanation['coupling_factor']:.3f})"
+            )
+            print(
+                f"    MI effect:         {explanation['mi_contribution']:+7.2f}"
+                f"  (avg_mi={explanation['avg_maintainability_index']:.1f})"
             )
             print(f"    Final NCS:         {explanation['ncs']:7.2f}")
             if explanation['dominant_factor'] != "none":

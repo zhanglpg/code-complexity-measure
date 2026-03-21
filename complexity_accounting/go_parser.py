@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .scanner import FunctionMetrics, FileMetrics
+from .scanner import FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -42,7 +42,7 @@ def _compute_cognitive_complexity(node) -> tuple:
     complexity = 0
     max_nesting = 0
 
-    def walk(n, nesting):
+    def walk(n, nesting, parent_bool_op=None):
         nonlocal complexity, max_nesting
 
         if n.type == "if_statement":
@@ -112,9 +112,10 @@ def _compute_cognitive_complexity(node) -> tuple:
                     op_node = child
                     break
             if op_node:
-                complexity += 1
+                if op_node.type != parent_bool_op:
+                    complexity += 1
                 for child in n.children:
-                    walk(child, nesting)
+                    walk(child, nesting, parent_bool_op=op_node.type)
                 return
 
         if n.type == "go_statement":
@@ -231,6 +232,7 @@ def _collect_functions(tree, file_path: str, source: bytes) -> List[FunctionMetr
                 nloc=node.end_point[0] - node.start_point[0] + 1,
                 params=_count_params(params_node) if params_node else 0,
                 max_nesting=max_nest,
+                maintainability_index=compute_mi(node.end_point[0] - node.start_point[0] + 1, cyc),
             ))
 
         elif node.type == "method_declaration":
@@ -273,6 +275,7 @@ def _collect_functions(tree, file_path: str, source: bytes) -> List[FunctionMetr
                 nloc=node.end_point[0] - node.start_point[0] + 1,
                 params=_count_params(params_node) if params_node else 0,
                 max_nesting=max_nest,
+                maintainability_index=compute_mi(node.end_point[0] - node.start_point[0] + 1, cyc),
             ))
 
     return functions
