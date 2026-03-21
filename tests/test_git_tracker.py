@@ -338,6 +338,30 @@ def test_compare_refs_changed_only_false():
     assert "ls-tree" in args
 
 
+def test_compare_refs_full_scan_includes_non_python_files():
+    """Full-scan mode should include all supported extensions, not just .py."""
+    with patch("complexity_accounting.git_tracker.get_changed_files") as mock_changes, \
+         patch("complexity_accounting.git_tracker.scan_at_ref") as mock_scan, \
+         patch("complexity_accounting.git_tracker._run_git") as mock_git:
+
+        mock_changes.return_value = {}
+        mock_git.return_value = "app.py\nmain.go\nApp.java\nindex.ts\nutil.js\nlib.rs\nmain.cpp\nREADME.md"
+        mock_scan.return_value = {}
+
+        compare_refs("main", "HEAD", "/repo", changed_only=False)
+
+    # scan_at_ref is called twice (base + head); check head call's file list
+    head_files = mock_scan.call_args_list[1][0][2]
+    assert "app.py" in head_files
+    assert "main.go" in head_files
+    assert "App.java" in head_files
+    assert "index.ts" in head_files
+    assert "util.js" in head_files
+    assert "lib.rs" in head_files
+    assert "main.cpp" in head_files
+    assert "README.md" not in head_files
+
+
 # ---------------------------------------------------------------------------
 # trend
 # ---------------------------------------------------------------------------

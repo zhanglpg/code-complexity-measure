@@ -1,0 +1,8 @@
+- id: complexity-check
+  name: Complexity Check
+  description: Check code complexity using Net Complexity Score (NCS)
+  entry: python -m complexity_accounting scan
+  language: python
+  types_or: [python, go, java, javascript, ts, c, c++, rust]
+  pass_filenames: false
+  args: ['--brief', '--fail-above', '10']

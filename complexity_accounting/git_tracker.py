@@ -232,7 +232,10 @@ def compare_refs(
     else:
         # Scan everything (slower but more accurate for NCS)
         output = _run_git(["ls-tree", "-r", "--name-only", head_ref], cwd=repo_path)
-        files_to_scan = [f for f in output.splitlines() if f.strip() and f.endswith('.py')]
+        files_to_scan = [
+            f for f in output.splitlines()
+            if f.strip() and any(f.endswith(ext) for ext in SUPPORTED_EXTENSIONS)
+        ]
     
     # Scan at both refs
     base_files_to_scan = [f for f in files_to_scan if changes.get(f) != "A"]
