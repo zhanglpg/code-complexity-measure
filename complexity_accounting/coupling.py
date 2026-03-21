@@ -1,7 +1,9 @@
 """
 Import coupling analysis.
 
-Computes efferent coupling (fan-out) per file by analyzing Python imports.
+Computes efferent coupling (fan-out) per file by analyzing imports.
+Supports Python (via libcst) and Go, Java, JavaScript, TypeScript, Rust,
+C/C++ (via tree-sitter).
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from typing import Dict, List, Optional
 import libcst as cst
 
 
-# Standard library module names for filtering
+# Standard library module names for filtering (Python only)
 try:
     _STDLIB_MODULES = sys.stdlib_module_names  # Python 3.10+
 except AttributeError:
@@ -62,6 +64,10 @@ class CouplingMetrics:
     efferent_coupling: int = 0
     imports: List[str] = field(default_factory=list)
 
+
+# ---------------------------------------------------------------------------
+# Python coupling analysis (libcst)
+# ---------------------------------------------------------------------------
 
 class _ImportCollector(cst.CSTVisitor):
     """Collects imported module names from a Python file."""
@@ -125,14 +131,206 @@ def analyze_file_coupling(file_path: str) -> CouplingMetrics:
     )
 
 
+# ---------------------------------------------------------------------------
+# Tree-sitter coupling analysis (all other languages)
+# ---------------------------------------------------------------------------
+
+# Import node type → extractor function (returns list of import strings)
+_TS_IMPORT_EXTRACTORS = {
+    # Go: import "fmt" or import ( "fmt" ; "os" )
+    "import_declaration": "_extract_go_imports",
+    # Java: import java.util.List;
+    # Also used by: import_statement in JS/TS
+    "import_statement": "_extract_js_imports",
+    # Rust: use std::io::Read;
+    "use_declaration": "_extract_rust_imports",
+    # C/C++: #include <stdio.h> or #include "myheader.h"
+    "preproc_include": "_extract_cpp_imports",
+}
+
+# Map language names to their import-related node types
+_LANG_IMPORT_TYPES = {
+    "go": {"import_declaration"},
+    "java": {"import_declaration"},
+    "javascript": {"import_statement"},
+    "typescript": {"import_statement"},
+    "rust": {"use_declaration"},
+    "cpp": {"preproc_include"},
+}
+
+
+def _extract_go_imports(node) -> List[str]:
+    """Extract import paths from a Go import_declaration."""
+    imports = []
+    for child in node.children:
+        if child.type == "import_spec":
+            path_node = child.child_by_field_name("path")
+            if path_node:
+                # Strip quotes from the interpreted_string_literal
+                path = path_node.text.decode().strip('"')
+                imports.append(path)
+        elif child.type == "import_spec_list":
+            for spec in child.children:
+                if spec.type == "import_spec":
+                    path_node = spec.child_by_field_name("path")
+                    if path_node:
+                        path = path_node.text.decode().strip('"')
+                        imports.append(path)
+    return imports
+
+
+def _extract_java_imports(node) -> List[str]:
+    """Extract import path from a Java import_declaration."""
+    # Java import_declaration has a scoped_identifier child
+    for child in node.children:
+        if child.type == "scoped_identifier":
+            return [child.text.decode()]
+        elif child.type == "identifier":
+            return [child.text.decode()]
+    return []
+
+
+def _extract_js_imports(node) -> List[str]:
+    """Extract import path from a JS/TS import_statement."""
+    source = node.child_by_field_name("source")
+    if source:
+        # Strip quotes from string literal
+        path = source.text.decode().strip("'\"")
+        return [path]
+    return []
+
+
+def _extract_rust_imports(node) -> List[str]:
+    """Extract import path from a Rust use_declaration."""
+    # use_declaration children include the path
+    for child in node.children:
+        if child.type in ("scoped_identifier", "identifier", "use_as_clause",
+                          "scoped_use_list", "use_wildcard"):
+            return [child.text.decode()]
+    return []
+
+
+def _extract_cpp_imports(node) -> List[str]:
+    """Extract include path from a C/C++ preproc_include."""
+    path_node = node.child_by_field_name("path")
+    if path_node:
+        # Strip <> or "" from the path
+        path = path_node.text.decode().strip('<>"')
+        return [path]
+    return []
+
+
+_EXTRACTORS = {
+    "go": _extract_go_imports,
+    "java": _extract_java_imports,
+    "javascript": _extract_js_imports,
+    "typescript": _extract_js_imports,
+    "rust": _extract_rust_imports,
+    "cpp": _extract_cpp_imports,
+}
+
+
+def _get_ts_language(lang_name: str):
+    """Get tree-sitter language object for a given language name. Returns None if unavailable."""
+    try:
+        if lang_name == "go":
+            import tree_sitter_go as tsgo
+            import tree_sitter as ts
+            return ts.Language(tsgo.language())
+        elif lang_name == "java":
+            import tree_sitter_java as tsjava
+            import tree_sitter as ts
+            return ts.Language(tsjava.language())
+        elif lang_name == "javascript":
+            import tree_sitter_javascript as tsjs
+            import tree_sitter as ts
+            return ts.Language(tsjs.language())
+        elif lang_name == "typescript":
+            import tree_sitter_typescript as tsts
+            import tree_sitter as ts
+            return ts.Language(tsts.language_typescript())
+        elif lang_name == "rust":
+            import tree_sitter_rust as tsrust
+            import tree_sitter as ts
+            return ts.Language(tsrust.language())
+        elif lang_name == "cpp":
+            import tree_sitter_cpp as tscpp
+            import tree_sitter as ts
+            return ts.Language(tscpp.language())
+    except (ImportError, ValueError):
+        pass
+    return None
+
+
+def analyze_file_coupling_treesitter(file_path: str, language: str) -> CouplingMetrics:
+    """Analyze imports in a non-Python source file using tree-sitter."""
+    import tree_sitter as ts
+
+    lang_obj = _get_ts_language(language)
+    if lang_obj is None:
+        return CouplingMetrics(file_path=file_path)
+
+    source = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    source_bytes = source.encode("utf-8")
+
+    parser = ts.Parser(lang_obj)
+    tree = parser.parse(source_bytes)
+
+    import_types = _LANG_IMPORT_TYPES.get(language, set())
+    extractor = _EXTRACTORS.get(language)
+    if not extractor:
+        return CouplingMetrics(file_path=file_path)
+
+    imports = []
+    seen = set()
+
+    def visit(node):
+        if node.type in import_types:
+            for imp in extractor(node):
+                if imp and imp not in seen:
+                    seen.add(imp)
+                    imports.append(imp)
+            return  # Don't recurse into import nodes
+        for child in node.children:
+            visit(child)
+
+    visit(tree.root_node)
+
+    return CouplingMetrics(
+        file_path=file_path,
+        efferent_coupling=len(imports),
+        imports=imports,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Unified analysis dispatch
+# ---------------------------------------------------------------------------
+
+def analyze_file_coupling_any(file_path: str) -> CouplingMetrics:
+    """Analyze imports in any supported source file."""
+    from .scanner import EXTENSION_LANGUAGE_MAP
+
+    ext = Path(file_path).suffix.lower()
+    language = EXTENSION_LANGUAGE_MAP.get(ext)
+
+    if language is None:
+        return CouplingMetrics(file_path=file_path)
+
+    if language == "python":
+        return analyze_file_coupling(file_path)
+
+    return analyze_file_coupling_treesitter(file_path, language)
+
+
 def analyze_directory_coupling(
     directory: str,
     exclude_patterns: Optional[List[str]] = None,
     include_tests: bool = False,
 ) -> Dict[str, CouplingMetrics]:
-    """Analyze coupling for all Python files in a directory."""
+    """Analyze coupling for all supported source files in a directory."""
     from fnmatch import fnmatch
-    from .scanner import TEST_FILE_PATTERNS
+    from .scanner import TEST_FILE_PATTERNS, SUPPORTED_EXTENSIONS
 
     if exclude_patterns is None:
         exclude_patterns = [
@@ -143,14 +341,16 @@ def analyze_directory_coupling(
 
     root = Path(directory)
     if root.is_file():
-        metrics = analyze_file_coupling(str(root))
+        metrics = analyze_file_coupling_any(str(root))
         return {str(root): metrics}
 
     results: Dict[str, CouplingMetrics] = {}
-    for py_file in sorted(root.rglob("*.py")):
-        rel = str(py_file.relative_to(root))
+    for source_file in sorted(root.rglob("*")):
+        if source_file.suffix not in SUPPORTED_EXTENSIONS:
+            continue
+        rel = str(source_file.relative_to(root))
         skip = any(
-            fnmatch(rel, pat) or fnmatch(str(py_file), pat)
+            fnmatch(rel, pat) or fnmatch(str(source_file), pat)
             for pat in exclude_patterns
         )
         if skip:
@@ -158,7 +358,7 @@ def analyze_directory_coupling(
         if not include_tests and any(fnmatch(rel, pat) for pat in TEST_FILE_PATTERNS):
             continue
         try:
-            results[rel] = analyze_file_coupling(str(py_file))
+            results[rel] = analyze_file_coupling_any(str(source_file))
         except Exception:
             continue
     return results
