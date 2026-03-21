@@ -230,36 +230,29 @@ _EXTRACTORS = {
 }
 
 
+_TS_LANG_REGISTRY = {
+    "go": ("tree_sitter_go", "language"),
+    "java": ("tree_sitter_java", "language"),
+    "javascript": ("tree_sitter_javascript", "language"),
+    "typescript": ("tree_sitter_typescript", "language_typescript"),
+    "rust": ("tree_sitter_rust", "language"),
+    "cpp": ("tree_sitter_cpp", "language"),
+}
+
+
 def _get_ts_language(lang_name: str):
     """Get tree-sitter language object for a given language name. Returns None if unavailable."""
+    entry = _TS_LANG_REGISTRY.get(lang_name)
+    if entry is None:
+        return None
+    mod_name, factory = entry
     try:
-        if lang_name == "go":
-            import tree_sitter_go as tsgo
-            import tree_sitter as ts
-            return ts.Language(tsgo.language())
-        elif lang_name == "java":
-            import tree_sitter_java as tsjava
-            import tree_sitter as ts
-            return ts.Language(tsjava.language())
-        elif lang_name == "javascript":
-            import tree_sitter_javascript as tsjs
-            import tree_sitter as ts
-            return ts.Language(tsjs.language())
-        elif lang_name == "typescript":
-            import tree_sitter_typescript as tsts
-            import tree_sitter as ts
-            return ts.Language(tsts.language_typescript())
-        elif lang_name == "rust":
-            import tree_sitter_rust as tsrust
-            import tree_sitter as ts
-            return ts.Language(tsrust.language())
-        elif lang_name == "cpp":
-            import tree_sitter_cpp as tscpp
-            import tree_sitter as ts
-            return ts.Language(tscpp.language())
-    except (ImportError, ValueError):
-        pass
-    return None
+        import importlib
+        import tree_sitter as ts
+        mod = importlib.import_module(mod_name)
+        return ts.Language(getattr(mod, factory)())
+    except (ImportError, ValueError, AttributeError):
+        return None
 
 
 def analyze_file_coupling_treesitter(file_path: str, language: str) -> CouplingMetrics:

@@ -34,19 +34,27 @@ def _get_format(args) -> str:
     return "text"
 
 
-def cmd_scan(args):
-    """Run the scanner."""
+def _ncs_rating(ncs: float) -> str:
+    """Return a human-readable NCS rating string."""
+    if ncs <= 3:
+        return "🟢 Healthy"
+    elif ncs <= 6:
+        return "🟡 Moderate"
+    elif ncs <= 10:
+        return "🟠 Concerning"
+    else:
+        return "🔴 Critical"
+
+
+def _build_config(args, target):
+    """Load config and apply CLI overrides."""
     from pathlib import Path
 
-    target = Path(args.path)
-
-    # Load config
     project_dir = str(target) if target.is_dir() else str(target.parent)
     if args.config:
         project_dir = str(Path(args.config).parent)
     config = load_config(project_dir)
 
-    # CLI overrides
     overrides = {}
     if args.threshold is not None:
         overrides["hotspot_threshold"] = args.threshold
@@ -65,9 +73,11 @@ def cmd_scan(args):
         overrides["ncs_model"] = args.ncs_model
     if getattr(args, "include_tests", False):
         overrides["include_tests"] = True
-    config = merge_cli_overrides(config, **overrides)
+    return merge_cli_overrides(config, **overrides)
 
-    # Set up caching
+
+def _setup_cache(args, target):
+    """Initialize content-hash caching if enabled."""
     if not getattr(args, "no_cache", False):
         try:
             from .cache import MetricsCache
@@ -79,6 +89,157 @@ def cmd_scan(args):
             set_cache(MetricsCache(cache_dir=cache_dir))
         except Exception:
             pass
+
+
+def _compute_factors(args, target, config):
+    """Compute churn and coupling factors. Returns (churn_factor, coupling_factor)."""
+    churn_factor = 1.0
+    coupling_factor = 1.0
+
+    if not args.no_coupling:
+        try:
+            from .coupling import analyze_directory_coupling, compute_coupling_factor
+            coupling_data = analyze_directory_coupling(str(target), include_tests=config.include_tests)
+            coupling_factor = compute_coupling_factor(coupling_data)
+        except Exception:
+            pass
+
+    if not args.no_churn:
+        try:
+            from .churn import analyze_churn, compute_churn_factor
+            churn_data = analyze_churn(
+                str(target), days=config.churn_days, max_commits=config.churn_commits
+            )
+            churn_factor = compute_churn_factor(churn_data)
+        except Exception:
+            pass
+
+    return churn_factor, coupling_factor
+
+
+def _format_text_report(result, ncs, config, explanation, args, out):
+    """Print human-readable text report."""
+    print("=" * 60, file=out)
+    print("  COMPLEXITY ACCOUNTING REPORT", file=out)
+    print("=" * 60, file=out)
+    print(file=out)
+
+    s = result.to_dict()["summary"]
+    print(f"  Net Complexity Score:  {ncs}  {_ncs_rating(ncs)}", file=out)
+    print(f"  Files scanned:        {s['files_scanned']}", file=out)
+    print(f"  Total functions:      {s['total_functions']}", file=out)
+    print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}", file=out)
+    print(f"  Hotspots (>={config.hotspot_threshold}):     {s['hotspot_count']}", file=out)
+    if config.ncs_model != "multiplicative":
+        print(f"  NCS model:            {config.ncs_model}", file=out)
+    churn_factor = explanation['churn_factor'] if explanation else 1.0
+    coupling_factor = explanation['coupling_factor'] if explanation else 1.0
+    if churn_factor != 1.0:
+        print(f"  Churn factor:         {churn_factor:.3f}", file=out)
+    if coupling_factor != 1.0:
+        print(f"  Coupling factor:      {coupling_factor:.3f}", file=out)
+    print(f"  Avg MI:               {s['avg_maintainability_index']}", file=out)
+    print(file=out)
+
+    if explanation is not None:
+        _print_ncs_breakdown(explanation, config, out)
+
+    _print_top_functions(result, config, args.top, out)
+    _print_top_classes(result, out)
+
+    print("=" * 60, file=out)
+
+
+def _print_ncs_breakdown(explanation, config, out):
+    """Print the NCS factor breakdown section."""
+    print(f"  NCS Breakdown ({explanation['model']}):", file=out)
+    print(f"  {'─' * 56}", file=out)
+    print(
+        f"    Base complexity:    {explanation['base_complexity']:7.2f}"
+        f"  ({config.weight_cognitive} * {explanation['avg_cognitive']:.2f} cog"
+        f" + {config.weight_cyclomatic} * {explanation['avg_cyclomatic']:.2f} cyc)",
+        file=out,
+    )
+    print(
+        f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
+        f"  (ratio={explanation['hotspot_ratio']:.2f})",
+        file=out,
+    )
+    print(
+        f"    Churn effect:      {explanation['churn_contribution']:+7.2f}"
+        f"  (factor={explanation['churn_factor']:.3f})",
+        file=out,
+    )
+    print(
+        f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
+        f"  (factor={explanation['coupling_factor']:.3f})",
+        file=out,
+    )
+    print(
+        f"    MI effect:         {explanation['mi_contribution']:+7.2f}"
+        f"  (avg_mi={explanation['avg_maintainability_index']:.1f})",
+        file=out,
+    )
+    print(f"    Final NCS:         {explanation['ncs']:7.2f}", file=out)
+    if explanation['dominant_factor'] != "none":
+        print(f"    Dominant factor:    {explanation['dominant_factor']}", file=out)
+    print(file=out)
+
+
+def _print_top_functions(result, config, top_n, out):
+    """Print the top complex functions table."""
+    all_funcs = [fn for fm in result.files for fn in fm.functions]
+    all_funcs.sort(key=lambda f: f.cognitive_complexity, reverse=True)
+    top = all_funcs[:top_n]
+
+    if not top:
+        return
+
+    risk_icons = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
+    print(f"  Top {min(len(top), top_n)} most complex functions:", file=out)
+    print(f"  {'─' * 56}", file=out)
+    for fn in top:
+        lang = get_language(fn.file_path)
+        low, mod, high = config.get_risk_levels(lang)
+        icon = risk_icons.get(fn.get_risk_level(low, mod, high), "  ")
+        short_path = fn.file_path
+        if len(short_path) > 30:
+            short_path = "..." + short_path[-27:]
+        print(
+            f"  {icon} {fn.cognitive_complexity:3d}  {fn.qualified_name:30s}  {short_path}:{fn.line}",
+            file=out,
+        )
+    print(file=out)
+
+
+def _print_top_classes(result, out):
+    """Print the top complex classes table."""
+    all_classes = [cls for fm in result.files for cls in fm.classes]
+    if not all_classes:
+        return
+
+    all_classes.sort(key=lambda c: c.total_cognitive, reverse=True)
+    top_classes = all_classes[:10]
+    print(f"  Top {len(top_classes)} most complex classes:", file=out)
+    print(f"  {'─' * 56}", file=out)
+    for cls in top_classes:
+        short_path = cls.file_path
+        if len(short_path) > 30:
+            short_path = "..." + short_path[-27:]
+        print(
+            f"    {cls.total_cognitive:3d} cog  {cls.wmc:3d} wmc  {cls.method_count:2d} methods  {cls.name:20s}  {short_path}:{cls.line}",
+            file=out,
+        )
+    print(file=out)
+
+
+def cmd_scan(args):
+    """Run the scanner."""
+    from pathlib import Path
+
+    target = Path(args.path)
+    config = _build_config(args, target)
+    _setup_cache(args, target)
 
     # Scan
     if target.is_file():
@@ -94,31 +255,9 @@ def cmd_scan(args):
     from .scanner import set_cache
     set_cache(None)
 
-    # Compute coupling and churn factors
-    churn_factor = 1.0
-    coupling_factor = 1.0
-
-    if not args.no_coupling:
-        try:
-            from .coupling import analyze_directory_coupling, compute_coupling_factor
-            coupling_data = analyze_directory_coupling(str(target), include_tests=config.include_tests)
-            coupling_factor = compute_coupling_factor(coupling_data)
-        except Exception:
-            pass  # graceful degradation
-
-    if not args.no_churn:
-        try:
-            from .churn import analyze_churn, compute_churn_factor
-            churn_data = analyze_churn(
-                str(target), days=config.churn_days, max_commits=config.churn_commits
-            )
-            churn_factor = compute_churn_factor(churn_data)
-        except Exception:
-            pass  # graceful degradation (e.g. not a git repo)
-
+    churn_factor, coupling_factor = _compute_factors(args, target, config)
     ncs = result.compute_ncs(config, churn_factor=churn_factor, coupling_factor=coupling_factor)
 
-    # Compute explanation by default (suppress with --brief)
     explanation = None
     if not args.brief:
         explanation = result.compute_ncs_explained(
@@ -156,120 +295,7 @@ def cmd_scan(args):
             print(sarif_to_json(sarif), file=out)
 
         else:
-            # Human-readable summary (text)
-            print("=" * 60, file=out)
-            print("  COMPLEXITY ACCOUNTING REPORT", file=out)
-            print("=" * 60, file=out)
-            print(file=out)
-
-            s = result.to_dict()["summary"]
-
-            # NCS rating
-            if ncs <= 3:
-                rating = "🟢 Healthy"
-            elif ncs <= 6:
-                rating = "🟡 Moderate"
-            elif ncs <= 10:
-                rating = "🟠 Concerning"
-            else:
-                rating = "🔴 Critical"
-
-            print(f"  Net Complexity Score:  {ncs}  {rating}", file=out)
-            print(f"  Files scanned:        {s['files_scanned']}", file=out)
-            print(f"  Total functions:      {s['total_functions']}", file=out)
-            print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}", file=out)
-            print(f"  Hotspots (>={config.hotspot_threshold}):     {s['hotspot_count']}", file=out)
-            if config.ncs_model != "multiplicative":
-                print(f"  NCS model:            {config.ncs_model}", file=out)
-            if churn_factor != 1.0:
-                print(f"  Churn factor:         {churn_factor:.3f}", file=out)
-            if coupling_factor != 1.0:
-                print(f"  Coupling factor:      {coupling_factor:.3f}", file=out)
-            print(f"  Avg MI:               {s['avg_maintainability_index']}", file=out)
-            print(file=out)
-
-            # Explain breakdown
-            if explanation is not None:
-                print(f"  NCS Breakdown ({explanation['model']}):", file=out)
-                print(f"  {'─' * 56}", file=out)
-                print(
-                    f"    Base complexity:    {explanation['base_complexity']:7.2f}"
-                    f"  ({config.weight_cognitive} * {explanation['avg_cognitive']:.2f} cog"
-                    f" + {config.weight_cyclomatic} * {explanation['avg_cyclomatic']:.2f} cyc)",
-                    file=out,
-                )
-                print(
-                    f"    Hotspot effect:    {explanation['hotspot_contribution']:+7.2f}"
-                    f"  (ratio={explanation['hotspot_ratio']:.2f})",
-                    file=out,
-                )
-                print(
-                    f"    Churn effect:      {explanation['churn_contribution']:+7.2f}"
-                    f"  (factor={explanation['churn_factor']:.3f})",
-                    file=out,
-                )
-                print(
-                    f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
-                    f"  (factor={explanation['coupling_factor']:.3f})",
-                    file=out,
-                )
-                print(
-                    f"    MI effect:         {explanation['mi_contribution']:+7.2f}"
-                    f"  (avg_mi={explanation['avg_maintainability_index']:.1f})",
-                    file=out,
-                )
-                print(f"    Final NCS:         {explanation['ncs']:7.2f}", file=out)
-                if explanation['dominant_factor'] != "none":
-                    print(f"    Dominant factor:    {explanation['dominant_factor']}", file=out)
-                print(file=out)
-
-            # Top complex functions
-            all_funcs = []
-            for fm in result.files:
-                for fn in fm.functions:
-                    all_funcs.append(fn)
-
-            all_funcs.sort(key=lambda f: f.cognitive_complexity, reverse=True)
-            top = all_funcs[: args.top]
-
-            if top:
-                print(f"  Top {min(len(top), args.top)} most complex functions:", file=out)
-                print(f"  {'─' * 56}", file=out)
-                for fn in top:
-                    risk = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
-                    lang = get_language(fn.file_path)
-                    low, mod, high = config.get_risk_levels(lang)
-                    icon = risk.get(fn.get_risk_level(low, mod, high), "  ")
-                    # Shorten path for display
-                    short_path = fn.file_path
-                    if len(short_path) > 30:
-                        short_path = "..." + short_path[-27:]
-                    print(
-                        f"  {icon} {fn.cognitive_complexity:3d}  {fn.qualified_name:30s}  {short_path}:{fn.line}",
-                        file=out,
-                    )
-                print(file=out)
-
-            # Class metrics summary
-            all_classes = []
-            for fm in result.files:
-                all_classes.extend(fm.classes)
-            if all_classes:
-                all_classes.sort(key=lambda c: c.total_cognitive, reverse=True)
-                top_classes = all_classes[:10]
-                print(f"  Top {len(top_classes)} most complex classes:", file=out)
-                print(f"  {'─' * 56}", file=out)
-                for cls in top_classes:
-                    short_path = cls.file_path
-                    if len(short_path) > 30:
-                        short_path = "..." + short_path[-27:]
-                    print(
-                        f"    {cls.total_cognitive:3d} cog  {cls.wmc:3d} wmc  {cls.method_count:2d} methods  {cls.name:20s}  {short_path}:{cls.line}",
-                        file=out,
-                    )
-                print(file=out)
-
-            print("=" * 60, file=out)
+            _format_text_report(result, ncs, config, explanation, args, out)
 
     # CI gate
     if args.fail_above is not None and ncs > args.fail_above:

@@ -857,36 +857,32 @@ def scan_file(file_path: str) -> FileMetrics:
     return result
 
 
+# Dispatch table: language name -> (module, function_name) for lazy imports
+_SCANNER_DISPATCH = {
+    "go": (".go_parser", "scan_go_file"),
+    "java": (".java_parser", "scan_java_file"),
+    "javascript": (".js_parser", "scan_js_file"),
+    "typescript": (".ts_parser", "scan_ts_file"),
+    "cpp": (".cpp_parser", "scan_cpp_file"),
+    "rust": (".rust_parser", "scan_rust_file"),
+}
+
+
 def _scan_file_uncached(file_path: str) -> FileMetrics:
     """Scan a single source file without cache lookup."""
     path = Path(file_path)
+    language = EXTENSION_LANGUAGE_MAP.get(path.suffix.lower())
 
-    if path.suffix == '.go':
-        from .go_parser import scan_go_file
-        return scan_go_file(file_path)
-
-    if path.suffix == '.java':
-        from .java_parser import scan_java_file
-        return scan_java_file(file_path)
-
-    if path.suffix in ('.js', '.mjs', '.cjs'):
-        from .js_parser import scan_js_file
-        return scan_js_file(file_path)
-
-    if path.suffix in ('.ts', '.tsx', '.mts', '.cts'):
-        from .ts_parser import scan_ts_file
-        return scan_ts_file(file_path)
-
-    if path.suffix in ('.c', '.cc', '.cpp', '.cxx', '.h', '.hpp', '.hxx'):
-        from .cpp_parser import scan_cpp_file
-        return scan_cpp_file(file_path)
-
-    if path.suffix == '.rs':
-        from .rust_parser import scan_rust_file
-        return scan_rust_file(file_path)
+    # Dispatch to language-specific parser
+    if language and language != "python":
+        entry = _SCANNER_DISPATCH.get(language)
+        if entry:
+            import importlib
+            mod = importlib.import_module(entry[0], package="complexity_accounting")
+            return getattr(mod, entry[1])(file_path)
 
     # Check for plugin support for unknown extensions
-    if path.suffix != '.py' and path.suffix not in SUPPORTED_EXTENSIONS:
+    if language is None and path.suffix not in SUPPORTED_EXTENSIONS:
         try:
             from .plugin import get_plugin_for_extension
             plugin = get_plugin_for_extension(path.suffix)
@@ -994,88 +990,10 @@ def scan_directory(
 # ---------------------------------------------------------------------------
 
 def main():
-    import argparse
-    
-    parser = argparse.ArgumentParser(
-        description="Complexity Accounting Tool — measure Net Complexity Score"
-    )
-    parser.add_argument("path", help="File or directory to scan")
-    parser.add_argument("--json", action="store_true", help="Output as JSON")
-    parser.add_argument("--threshold", type=int, default=10,
-                       help="Cognitive complexity threshold for hotspots (default: 10)")
-    parser.add_argument("--top", type=int, default=20,
-                       help="Show top N complex functions (default: 20)")
-    parser.add_argument("--fail-above", type=float, default=None,
-                       help="Exit with code 1 if NCS exceeds this value")
-    
-    args = parser.parse_args()
-    target = Path(args.path)
-    
-    if target.is_file():
-        result = ScanResult(files=[scan_file(str(target))])
-    elif target.is_dir():
-        result = scan_directory(str(target))
-    else:
-        print(f"Error: {target} not found", file=sys.stderr)
-        sys.exit(1)
-    
-    if args.json:
-        print(result.to_json())
-    else:
-        # Human-readable summary
-        print("=" * 60)
-        print("  COMPLEXITY ACCOUNTING REPORT")
-        print("=" * 60)
-        print()
-        
-        s = result.to_dict()["summary"]
-        ncs = s["net_complexity_score"]
-        
-        # NCS rating
-        if ncs <= 3:
-            rating = "🟢 Healthy"
-        elif ncs <= 6:
-            rating = "🟡 Moderate"
-        elif ncs <= 10:
-            rating = "🟠 Concerning"
-        else:
-            rating = "🔴 Critical"
-        
-        print(f"  Net Complexity Score:  {ncs}  {rating}")
-        print(f"  Files scanned:        {s['files_scanned']}")
-        print(f"  Total functions:      {s['total_functions']}")
-        print(f"  Avg cognitive/func:   {s['avg_cognitive_per_function']}")
-        print(f"  Hotspots (>={args.threshold}):     {s['hotspot_count']}")
-        print()
-        
-        # Top complex functions
-        all_funcs = []
-        for fm in result.files:
-            for fn in fm.functions:
-                all_funcs.append(fn)
-        
-        all_funcs.sort(key=lambda f: f.cognitive_complexity, reverse=True)
-        top = all_funcs[:args.top]
-        
-        if top:
-            print(f"  Top {min(len(top), args.top)} most complex functions:")
-            print(f"  {'─' * 56}")
-            for fn in top:
-                risk = {"low": "  ", "moderate": "⚠️", "high": "🔥", "very_high": "💀"}
-                icon = risk.get(fn.risk_level, "  ")
-                # Shorten path for display
-                short_path = fn.file_path
-                if len(short_path) > 30:
-                    short_path = "..." + short_path[-27:]
-                print(f"  {icon} {fn.cognitive_complexity:3d}  {fn.qualified_name:30s}  {short_path}:{fn.line}")
-            print()
-        
-        print("=" * 60)
-    
-    # CI gate
-    if args.fail_above is not None and result.net_complexity_score > args.fail_above:
-        print(f"\n❌ FAILED: NCS {result.net_complexity_score} exceeds threshold {args.fail_above}")
-        sys.exit(1)
+    """Legacy entry point for 'complexity-scan' command. Delegates to the full CLI."""
+    sys.argv = [sys.argv[0], "scan"] + sys.argv[1:]
+    from .__main__ import main as cli_main
+    cli_main()
 
 
 if __name__ == "__main__":

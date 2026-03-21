@@ -206,10 +206,18 @@ class TreeSitterParser:
         complexity = 0
         max_nesting = 0
 
+        def _walk_body_children(n, nesting):
+            """Walk children, entering body_types at nesting+1."""
+            for child in n.children:
+                if child.type in self.body_types:
+                    walk(child, nesting + 1)
+                else:
+                    walk(child, nesting)
+
         def walk(n, nesting, parent_bool_op=None):
             nonlocal complexity, max_nesting
 
-            # --- If statement ---
+            # If statement (with else-if handling)
             if n.type == self.if_type:
                 if self.is_else_if(n):
                     complexity += 1
@@ -221,36 +229,21 @@ class TreeSitterParser:
                     self._walk_if_children(n, nesting, walk)
                 return
 
-            # --- Loops ---
-            if n.type in self.loop_types:
+            # Loops and catch: +1 complexity with nesting penalty
+            if n.type in self.loop_types or n.type in self.catch_types:
                 complexity += 1 + nesting
                 max_nesting = max(max_nesting, nesting + 1)
-                for child in n.children:
-                    if child.type in self.body_types:
-                        walk(child, nesting + 1)
-                    else:
-                        walk(child, nesting)
+                _walk_body_children(n, nesting)
                 return
 
-            # --- Switch / match ---
+            # Switch / match
             if n.type in self.switch_types:
                 complexity += 1 + nesting
                 max_nesting = max(max_nesting, nesting + 1)
                 self._walk_switch_children(n, nesting, walk)
                 return
 
-            # --- Catch ---
-            if n.type in self.catch_types:
-                complexity += 1 + nesting
-                max_nesting = max(max_nesting, nesting + 1)
-                for child in n.children:
-                    if child.type in self.body_types:
-                        walk(child, nesting + 1)
-                    else:
-                        walk(child, nesting)
-                return
-
-            # --- Boolean operators ---
+            # Boolean operators
             if n.type == self.binary_expr_type:
                 op_type = self._get_bool_op(n)
                 if op_type and op_type in self.bool_op_types:
@@ -260,39 +253,25 @@ class TreeSitterParser:
                         walk(child, nesting, parent_bool_op=op_type)
                     return
 
-            # --- Extra increment types (e.g. go_statement, ternary, try) ---
+            # Extra increment types (go_statement, ternary, try)
             if n.type in self.extra_increment_types:
                 complexity += 1
                 for child in n.children:
                     walk(child, nesting)
                 return
 
-            # --- Break / continue (leaf) ---
+            # Break / continue (leaf)
             if n.type in self.break_types:
                 complexity += 1
                 return
 
-            # --- Lambda / closure (nesting, no complexity) ---
-            if n.type in self.lambda_types:
+            # Lambda/closure and nesting-only types: increase nesting, no complexity
+            if n.type in self.lambda_types or n.type in self.nesting_only_types:
                 max_nesting = max(max_nesting, nesting + 1)
-                for child in n.children:
-                    if child.type in self.body_types:
-                        walk(child, nesting + 1)
-                    else:
-                        walk(child, nesting)
+                _walk_body_children(n, nesting)
                 return
 
-            # --- Nesting-only types (e.g. unsafe_block) ---
-            if n.type in self.nesting_only_types:
-                max_nesting = max(max_nesting, nesting + 1)
-                for child in n.children:
-                    if child.type in self.body_types:
-                        walk(child, nesting + 1)
-                    else:
-                        walk(child, nesting)
-                return
-
-            # --- Default: recurse ---
+            # Default: recurse
             for child in n.children:
                 walk(child, nesting)
 

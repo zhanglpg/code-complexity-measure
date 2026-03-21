@@ -75,20 +75,7 @@ class GoParser(TreeSitterParser):
                 name_node = node.child_by_field_name("name")
                 name = name_node.text.decode() if name_node else "<unknown>"
 
-                receiver = ""
-                for child in node.children:
-                    if child.type == "parameter_list":
-                        for param in child.children:
-                            if param.type == "parameter_declaration":
-                                for tc in param.children:
-                                    if tc.type == "type_identifier":
-                                        receiver = tc.text.decode()
-                                    elif tc.type == "pointer_type":
-                                        for inner in tc.children:
-                                            if inner.type == "type_identifier":
-                                                receiver = inner.text.decode()
-                        break
-
+                receiver = _extract_receiver_type(node)
                 qualified = f"{receiver}.{name}" if receiver else name
                 body = node.child_by_field_name("body")
                 params_node = node.child_by_field_name("parameters")
@@ -129,6 +116,23 @@ class GoParser(TreeSitterParser):
                 methods=methods,
             ))
         return classes
+
+
+def _extract_receiver_type(method_node) -> str:
+    """Extract the receiver type name from a Go method_declaration."""
+    for child in method_node.children:
+        if child.type == "parameter_list":
+            for param in child.children:
+                if param.type == "parameter_declaration":
+                    for tc in param.children:
+                        if tc.type == "type_identifier":
+                            return tc.text.decode()
+                        if tc.type == "pointer_type":
+                            for inner in tc.children:
+                                if inner.type == "type_identifier":
+                                    return inner.text.decode()
+            break
+    return ""
 
 
 def _count_params(param_list_node) -> int:
