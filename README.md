@@ -31,10 +31,12 @@ python -m complexity_accounting scan . --fail-above 8
 |--------|------|-----|
 | **Cognitive Complexity** | How hard is the code to understand | Primary signal — measures human burden |
 | **Cyclomatic Complexity** | Number of decision paths | Classic metric, good for test coverage estimation |
-| **Net Complexity Score** | Weighted aggregate with hotspot, churn, and coupling penalties | Single number for CI gates |
+| **Net Complexity Score** | Weighted aggregate with hotspot, churn, coupling, and MI penalties | Single number for CI gates |
 | **Hotspots** | Functions above threshold (default 10) | Identifies refactoring targets |
+| **Class Complexity** | Total cognitive + WMC (Weighted Methods per Class) | Identifies god classes and bloated abstractions |
 | **Churn Factor** | How frequently files change | Penalizes volatile, complex code |
 | **Coupling Factor** | Import fan-out (efferent coupling) | Penalizes tightly coupled modules |
+| **Maintainability Index** | Composite metric (0-100) | Industry-standard maintainability score |
 
 ### Net Complexity Score (NCS)
 
@@ -70,7 +72,8 @@ python -m complexity_accounting scan <path> [options]
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--json` | JSON output | off |
+| `--json` | JSON output (shorthand for `--format json`) | off |
+| `--format FORMAT` | Output format: `text`, `json`, `html`, `sarif` | `text` |
 | `--threshold N` | Hotspot cognitive complexity threshold | 10 |
 | `--top N` | Show top N complex functions | 20 |
 | `--fail-above FLOAT` | Exit 1 if NCS exceeds value | none |
@@ -80,7 +83,19 @@ python -m complexity_accounting scan <path> [options]
 | `--churn-commits N` | Max commits for churn analysis | 100 |
 | `--no-churn` | Skip churn factor calculation | off |
 | `--no-coupling` | Skip coupling factor calculation | off |
-| `--output FILE` / `-o` | Write output to file instead of stdout | stdout |
+| `--no-cache` | Disable content-hash caching | off |
+| `--ncs-model MODEL` | NCS formula: `multiplicative` or `additive` | `multiplicative` |
+| `--brief` | Hide NCS factor breakdown (shown by default) | off |
+| `--include-tests` | Include test files in complexity scoring | off |
+| `--workers N` | Number of parallel workers for scanning | auto |
+| `--output FILE` / `-o` | Write output to FILE instead of stdout | stdout |
+
+**Output Formats:**
+
+- **text** — Human-readable report with NCS breakdown, top functions, and top classes
+- **json** — Machine-readable JSON with full metrics
+- **html** — Styled HTML report with interactive elements
+- **sarif** — SARIF 2.1 format for IDE integration (VS Code, GitHub Code Scanning)
 
 ### `compare` — Diff complexity between git refs
 
@@ -109,6 +124,16 @@ python -m complexity_accounting trend --repo . [options]
 | `--commits N` | Number of commits to analyze | 10 |
 | `--ref REF` | Starting reference | HEAD |
 | `--json` | JSON output | off |
+| `--include-tests` | Include test files in complexity scoring | off |
+| `--output FILE` / `-o` | Write output to FILE instead of stdout | stdout |
+
+### `list-plugins` — List discovered language plugins
+
+```bash
+python -m complexity_accounting list-plugins
+```
+
+Shows all discovered language plugins (built-in + extension points). Useful for debugging custom language support.
 
 ## Configuration
 
@@ -275,9 +300,16 @@ repos:
 ```
 complexity_accounting/
 ├── scanner.py          # Core: cognitive + cyclomatic complexity via libcst
+├── models.py           # Data models (Function, Class, File, ScanResult)
 ├── git_tracker.py      # Git-aware: compare refs, track trends, PR deltas
 ├── churn.py            # Git churn analysis (modification frequency)
 ├── coupling.py         # Import coupling analysis (efferent coupling)
+├── cache.py            # Content-hash caching for incremental scans
+├── halstead.py         # Halstead complexity metrics
+├── html_report.py      # HTML report generation
+├── sarif.py            # SARIF 2.1 format export
+├── plugin.py           # Language plugin discovery system
+├── base_parser.py      # Base parser protocol for language plugins
 ├── go_parser.py        # Go support via tree-sitter
 ├── java_parser.py      # Java support via tree-sitter
 ├── ts_parser.py        # TypeScript support via tree-sitter
@@ -293,6 +325,7 @@ complexity_accounting/
 - **tree-sitter** for Go, Java, TypeScript, JavaScript, Rust, and C/C++ parsing
 - Pure Python, no external services
 - Graceful degradation — churn/coupling are optional, tool works without git
+- **Plugin system** — Extensible language support via entry points
 
 ## Installation
 
