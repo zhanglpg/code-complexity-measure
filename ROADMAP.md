@@ -2,7 +2,7 @@
 
 > Last updated: 2026-03-23
 
-## Current State (v1.7.0)
+## Current State (v1.6.1)
 
 - 7 supported languages: Python, Go, Java, TypeScript, JavaScript, Rust, C/C++
 - Metrics: Cognitive complexity, Cyclomatic complexity, Maintainability Index, Halstead metrics, Net Complexity Score
