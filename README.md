@@ -153,6 +153,8 @@ python -m complexity_accounting compare --base REF --head REF [options]
 | `--json` | JSON output | off |
 | `--markdown` | Markdown output (for PR comments) | off |
 | `--full` | Scan all files, not just changed ones | off |
+| `--include-tests` | Include test files in complexity scoring | off |
+| `--output FILE` / `-o` | Write output to FILE instead of stdout | stdout |
 
 ### `trend` — Complexity over recent commits
 
@@ -346,6 +348,7 @@ complexity_accounting/
 ├── git_tracker.py      # Git-aware: compare refs, track trends, PR deltas
 ├── churn.py            # Git churn analysis (modification frequency)
 ├── coupling.py         # Import coupling analysis (efferent coupling)
+├── duplication.py      # Token-based clone detection (Type-1 & Type-2)
 ├── cache.py            # Content-hash caching for incremental scans
 ├── halstead.py         # Halstead complexity metrics
 ├── html_report.py      # HTML report generation
