@@ -1,16 +1,23 @@
 # Complexity Accounting Tool — Improvement Roadmap
 
-> Last updated: 2026-03-21
+> Last updated: 2026-03-23
 
-## Current State (v0.2.0)
+## Current State (v1.6.0)
 
 - 7 supported languages: Python, Go, Java, TypeScript, JavaScript, Rust, C/C++
-- Metrics: Cognitive complexity, Cyclomatic complexity, Maintainability Index, Net Complexity Score
+- Metrics: Cognitive complexity, Cyclomatic complexity, Maintainability Index, Halstead metrics, Net Complexity Score
 - Features: Git comparison, trend tracking, churn/coupling factors, GitHub Action
 - Shared `TreeSitterParser` base class for all tree-sitter parsers
 - Multi-language coupling analysis (all 7 languages)
 - Parallel file scanning via `ProcessPoolExecutor`
-- 92% test coverage
+- Class-level metrics (WMC, method count, total complexity)
+- Content-hash caching (`.complexity-cache/`)
+- Output formats: text, JSON, HTML, SARIF 2.1.0
+- Plugin architecture for third-party language support
+- Weighted hotspot severity in NCS formula (replaces binary count)
+- Additive and multiplicative NCS models (`--ncs-model`)
+- NCS breakdown/explanation (`compute_ncs_explained()`)
+- Language-aware risk thresholds and hotspot thresholds
 
 ## Known Bugs
 
@@ -47,49 +54,39 @@
 | 14 | SARIF output format | ✅ Done | SARIF 2.1.0; `--format sarif`; GitHub Code Scanning compatible |
 | 15 | Plugin architecture for languages | ✅ Done | `LanguagePlugin` protocol; entry-point discovery; `list-plugins` command |
 
-## Phase 4: Long-Term (3-6 months)
+## Phase 4: Long-Term
 
-| # | Item | Why |
-|---|------|-----|
-| 16 | Duplication/clone detection | Major complexity signal not currently captured |
-| 17 | VS Code extension | Inline complexity display, hotspot highlighting |
-| 18 | Trend visualization (sparklines/charts) | `trend` command outputs plain table only |
-| 19 | Docker image | Pre-built image with all language extras |
-| 20 | Monorepo support | Per-package thresholds and reporting |
-| 21 | Weighted hotspot severity in NCS formula | Binary hotspot count misses magnitude of improvements (see notes below) |
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 16 | Duplication/clone detection | | Major complexity signal not currently captured |
+| 17 | VS Code extension | | Inline complexity display, hotspot highlighting |
+| 18 | Trend visualization (sparklines/charts) | | `trend` command outputs ASCII table; no charts yet |
+| 19 | Docker image | | Pre-built image with all language extras |
+| 20 | Monorepo support | | Per-package thresholds and reporting |
+| 21 | Weighted hotspot severity in NCS formula | ✅ Done | Replaced binary count with sum of excess complexity above threshold (see notes below) |
 
-### Notes on Hotspot Metric Sensitivity (#21)
+### Notes on Hotspot Metric Sensitivity (#21) — Resolved
 
-Discovered during self-refactoring analysis (see `analysis.md`): the current hotspot
-metric uses a binary classification — a function is either above or below the threshold.
-This means the NCS formula cannot distinguish between a function at CC=11 (barely a
-hotspot) and one at CC=141 (extreme hotspot). When refactoring reduces a function from
-CC=141 to CC=18, it still counts as one hotspot, and the hotspot_ratio is unchanged.
+Discovered during self-refactoring analysis (see `analysis.md`): the original hotspot
+metric used a binary classification — a function was either above or below the threshold.
+This meant the NCS formula could not distinguish between a function at CC=11 (barely a
+hotspot) and one at CC=141 (extreme hotspot).
 
-**Observed impact:** Across 3 refactoring iterations that reduced avg cognitive complexity
-by 22%, the hotspot count stayed flat at 32. The NCS still improved (via avg complexity),
-but the hotspot component of the formula was insensitive to meaningful quality gains.
+**Resolution:** The NCS formula now uses weighted hotspot severity (`models.py:251-262`):
 
-**Proposed improvement:** Replace or supplement binary hotspot count with a **weighted
-hotspot severity score**, e.g.:
-
-```
-hotspot_severity = sum(max(0, cc - threshold) for each function) / total_functions
+```python
+total_excess = sum(max(0, fn.cognitive_complexity - threshold) for fn in all_functions)
+hotspot_ratio = total_excess / (total_functions * threshold)
 ```
 
-This would make the metric proportional to _how far_ above the threshold functions are,
-not just _whether_ they are. A function dropping from CC=141 to CC=18 would reduce
-severity by 123 points, while the current binary count only changes if it crosses below
-the threshold entirely.
+This makes the metric proportional to _how far_ above the threshold functions are.
+A function dropping from CC=141 to CC=18 reduces severity by 123 points, rather than
+only registering when it crosses below the threshold entirely. Language-aware thresholds
+are used via `config.get_hotspot_threshold(lang)`.
 
-**Trade-off:** The current binary ratio is simple and easy to explain ("15% of functions
-are hotspots"). A severity score is more sensitive but harder to interpret. Consider
-offering both, or using severity in the NCS formula while showing count in reports.
+## Recommended Next Steps (Top 4)
 
-## Recommended Next Steps (Top 5)
-
-1. **Weighted hotspot severity** (#21) — Low-effort NCS formula improvement informed by empirical self-analysis
-2. **Duplication/clone detection** (#16) — Major complexity signal not currently captured
-3. **Trend visualization** (#18) — sparklines/charts for the `trend` command
-4. **Docker image** (#19) — Pre-built image with all language extras
-5. **Monorepo support** (#20) — Per-package thresholds and reporting
+1. **Duplication/clone detection** (#16) — Major complexity signal not currently captured
+2. **Trend visualization** (#18) — sparklines/charts for the `trend` command
+3. **Docker image** (#19) — Pre-built image with all language extras
+4. **Monorepo support** (#20) — Per-package thresholds and reporting
