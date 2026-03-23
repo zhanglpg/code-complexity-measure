@@ -415,7 +415,7 @@ def main():
         "--ncs-model",
         choices=["multiplicative", "additive"],
         default=None,
-        help="NCS formula: multiplicative (default) or additive",
+        help="NCS formula: multiplicative (default, compounding risk model) or additive (linear progress model)",
     )
     scan_p.add_argument(
         "--brief", action="store_true", help="Hide NCS factor breakdown (shown by default)"
