@@ -40,15 +40,51 @@ python -m complexity_accounting scan . --fail-above 8
 
 ### Net Complexity Score (NCS)
 
+NCS aggregates all factors into a single score. Two scoring models are available via `--ncs-model`:
+
+#### Multiplicative (default)
+
 ```
-NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn_factor * coupling_factor
+NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic)
+      * (1 + hotspot_ratio)
+      * churn_factor
+      * coupling_factor
+      * mi_factor
 ```
 
+Factors compound — code that is complex AND churns frequently AND is tightly coupled scores disproportionately worse, reflecting real-world maintenance risk. Best for CI gating and risk assessment.
+
+#### Additive
+
+```
+NCS = base
+      + w_hotspot * (hotspot_ratio * 10)
+      + w_churn * ((churn_factor - 1) * 10)
+      + w_coupling * ((coupling_factor - 1) * 10)
+      + w_mi * ((100 - avg_mi) / 10)
+```
+
+Each factor contributes an independent, bounded penalty. Score changes are predictable and proportional. Best for incremental debt paydown and progress tracking.
+
+#### Factors
+
 - **Weights** — cognitive: 0.7, cyclomatic: 0.3 (configurable)
-- **hotspot_ratio** = functions above threshold / total functions
+- **hotspot_ratio** = sum of excess complexity above threshold / (total functions * threshold) — severity-weighted, not a binary count
 - **churn_factor** = 1.0 + log(avg_file_churn) / 10
 - **coupling_factor** = 1.0 + avg_efferent_coupling / max_efferent_coupling
+- **mi_factor** = 1.0 + max(0, (50 - avg_mi) / 50) — penalizes low maintainability (range 1.0–2.0)
+- **Additive weights** — hotspot: 0.2, churn: 0.1, coupling: 0.1, mi: 0.1 (configurable)
 - Rating: low <=3 | moderate <=6 | concerning <=10 | critical >10
+
+#### Which model should I use?
+
+| Use case | Recommended model |
+|----------|-------------------|
+| CI gating / quality gates | **multiplicative** — compounding prevents gaming any single metric |
+| Risk assessment & prioritization | **multiplicative** — co-occurring problems are flagged proportionally |
+| Gradual tech debt reduction | **additive** — predictable score movement per fix |
+| Team dashboards & trend tracking | **additive** — bounded, stable increments are easier to chart |
+| Fine-grained weight tuning | **additive** — 6 independent weights vs 2 |
 
 ## Supported Languages
 
@@ -84,7 +120,7 @@ python -m complexity_accounting scan <path> [options]
 | `--no-churn` | Skip churn factor calculation | off |
 | `--no-coupling` | Skip coupling factor calculation | off |
 | `--no-cache` | Disable content-hash caching | off |
-| `--ncs-model MODEL` | NCS formula: `multiplicative` or `additive` | `multiplicative` |
+| `--ncs-model MODEL` | NCS formula: `multiplicative` (compounding, risk-focused) or `additive` (linear, progress-focused) | `multiplicative` |
 | `--brief` | Hide NCS factor breakdown (shown by default) | off |
 | `--include-tests` | Include test files in complexity scoring | off |
 | `--workers N` | Number of parallel workers for scanning | auto |
