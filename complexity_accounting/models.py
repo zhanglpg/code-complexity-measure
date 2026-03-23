@@ -233,7 +233,7 @@ class ScanResult:
         """
         return self.compute_ncs()
 
-    def _compute_internals(self, config=None, churn_factor: float = 1.0, coupling_factor: float = 1.0):
+    def _compute_internals(self, config=None, churn_factor: float = 1.0, coupling_factor: float = 1.0, duplication_factor: float = 1.0):
         """Shared computation of intermediate NCS values."""
         if config is not None:
             w_cog = config.weight_cognitive
@@ -265,30 +265,31 @@ class ScanResult:
         mi_factor = 1.0 + max(0.0, (50.0 - avg_mi) / 50.0)
 
         base = w_cog * avg_cog + w_cyc * avg_cyc
-        return model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, churn_factor, coupling_factor, mi_factor, avg_mi
+        return model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, churn_factor, coupling_factor, mi_factor, avg_mi, duplication_factor
 
     def compute_ncs(
         self,
         config=None,
         churn_factor: float = 1.0,
         coupling_factor: float = 1.0,
+        duplication_factor: float = 1.0,
     ) -> float:
         """
         Compute Net Complexity Score with configurable weights and factors.
 
         Multiplicative (default):
-          NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn * coupling
+          NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic) * (1 + hotspot_ratio) * churn * coupling * duplication
 
         Additive:
-          NCS = w_cog * avg_cog + w_cyc * avg_cyc + w_hotspot * penalty + w_churn * penalty + w_coupling * penalty
+          NCS = w_cog * avg_cog + w_cyc * avg_cyc + w_hotspot * penalty + w_churn * penalty + w_coupling * penalty + w_duplication * penalty
 
         When called without arguments, produces the legacy cognitive-only result.
         """
         if self.total_functions == 0:
             return 0.0
 
-        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi = (
-            self._compute_internals(config, churn_factor, coupling_factor)
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi, df = (
+            self._compute_internals(config, churn_factor, coupling_factor, duplication_factor)
         )
 
         if model == "additive" and config is not None:
@@ -296,22 +297,25 @@ class ScanResult:
             churn_penalty = (cf - 1.0) * 10
             coupling_penalty = (cpf - 1.0) * 10
             mi_penalty = (100.0 - avg_mi) / 10.0
+            duplication_penalty = (df - 1.0) * 10
             return round(
                 base
                 + config.weight_hotspot * hotspot_penalty
                 + config.weight_churn * churn_penalty
                 + config.weight_coupling * coupling_penalty
-                + config.weight_mi * mi_penalty,
+                + config.weight_mi * mi_penalty
+                + config.weight_duplication * duplication_penalty,
                 2,
             )
 
-        return round(base * (1 + hotspot_ratio) * cf * cpf * mif, 2)
+        return round(base * (1 + hotspot_ratio) * cf * cpf * mif * df, 2)
 
     def compute_ncs_explained(
         self,
         config=None,
         churn_factor: float = 1.0,
         coupling_factor: float = 1.0,
+        duplication_factor: float = 1.0,
     ) -> Dict[str, Any]:
         """
         Compute NCS with a full breakdown of each factor's contribution.
@@ -328,17 +332,19 @@ class ScanResult:
                 "hotspot_ratio": 0.0,
                 "churn_factor": churn_factor,
                 "coupling_factor": coupling_factor,
+                "duplication_factor": duplication_factor,
                 "mi_factor": 1.0,
                 "avg_maintainability_index": 100.0,
                 "hotspot_contribution": 0.0,
                 "churn_contribution": 0.0,
                 "coupling_contribution": 0.0,
+                "duplication_contribution": 0.0,
                 "mi_contribution": 0.0,
                 "dominant_factor": "none",
             }
 
-        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi = (
-            self._compute_internals(config, churn_factor, coupling_factor)
+        model, w_cog, w_cyc, avg_cog, avg_cyc, hotspot_ratio, base, cf, cpf, mif, avg_mi, df = (
+            self._compute_internals(config, churn_factor, coupling_factor, duplication_factor)
         )
 
         if model == "additive" and config is not None:
@@ -346,21 +352,25 @@ class ScanResult:
             churn_contrib = config.weight_churn * ((cf - 1.0) * 10)
             coupling_contrib = config.weight_coupling * ((cpf - 1.0) * 10)
             mi_contrib = config.weight_mi * ((100.0 - avg_mi) / 10.0)
-            ncs = round(base + hotspot_contrib + churn_contrib + coupling_contrib + mi_contrib, 2)
+            duplication_contrib = config.weight_duplication * ((df - 1.0) * 10)
+            ncs = round(base + hotspot_contrib + churn_contrib + coupling_contrib + mi_contrib + duplication_contrib, 2)
         else:
             after_hotspot = base * (1 + hotspot_ratio)
             after_churn = after_hotspot * cf
             after_coupling = after_churn * cpf
-            ncs = round(after_coupling * mif, 2)
+            after_mi = after_coupling * mif
+            ncs = round(after_mi * df, 2)
             hotspot_contrib = after_hotspot - base
             churn_contrib = after_churn - after_hotspot
             coupling_contrib = after_coupling - after_churn
-            mi_contrib = (after_coupling * mif) - after_coupling
+            mi_contrib = after_mi - after_coupling
+            duplication_contrib = (after_mi * df) - after_mi
 
         contribs = {
             "hotspot": hotspot_contrib,
             "churn": churn_contrib,
             "coupling": coupling_contrib,
+            "duplication": duplication_contrib,
             "mi": mi_contrib,
         }
         dominant = max(contribs, key=lambda k: abs(contribs[k]))
@@ -376,11 +386,13 @@ class ScanResult:
             "hotspot_ratio": round(hotspot_ratio, 4),
             "churn_factor": round(cf, 4),
             "coupling_factor": round(cpf, 4),
+            "duplication_factor": round(df, 4),
             "mi_factor": round(mif, 4),
             "avg_maintainability_index": round(avg_mi, 2),
             "hotspot_contribution": round(hotspot_contrib, 4),
             "churn_contribution": round(churn_contrib, 4),
             "coupling_contribution": round(coupling_contrib, 4),
+            "duplication_contribution": round(duplication_contrib, 4),
             "mi_contribution": round(mi_contrib, 4),
             "dominant_factor": dominant,
         }
