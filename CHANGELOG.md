@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-03-23
+
+### Added
+- **Duplication/clone detection**: Token-based Type-1 and Type-2 clone detection using Rabin-Karp rolling hash. Detects duplicate code blocks across and within files, with normalized identifiers/literals for renamed-variable clone matching. New `duplication.py` module.
+- **Duplication factor in NCS**: `duplication_factor` integrated into both multiplicative and additive NCS formulas. Penalizes codebases with high levels of copy-paste duplication.
+- `--no-duplication` CLI flag to skip duplication analysis
+- `--duplication-min-tokens N` CLI flag to configure minimum token sequence length for clone detection (default: 50)
+- `weight_duplication` (default: 0.15) and `duplication_min_tokens` (default: 50) config fields
+- `duplication_factor` and `duplication_contribution` in NCS breakdown and JSON/HTML output
+- 29 new tests covering factor computation, tokenization, rolling hash, clone detection, directory analysis, and NCS integration
+
 ## [1.6.0] - 2026-03-21
 
 ### Added

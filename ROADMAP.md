@@ -2,11 +2,11 @@
 
 > Last updated: 2026-03-23
 
-## Current State (v1.6.0)
+## Current State (v1.6.1)
 
 - 7 supported languages: Python, Go, Java, TypeScript, JavaScript, Rust, C/C++
 - Metrics: Cognitive complexity, Cyclomatic complexity, Maintainability Index, Halstead metrics, Net Complexity Score
-- Features: Git comparison, trend tracking, churn/coupling factors, GitHub Action
+- Features: Git comparison, trend tracking, churn/coupling/duplication factors, GitHub Action
 - Shared `TreeSitterParser` base class for all tree-sitter parsers
 - Multi-language coupling analysis (all 7 languages)
 - Parallel file scanning via `ProcessPoolExecutor`
@@ -18,6 +18,7 @@
 - Additive and multiplicative NCS models (`--ncs-model`)
 - NCS breakdown/explanation (`compute_ncs_explained()`)
 - Language-aware risk thresholds and hotspot thresholds
+- Token-based duplication/clone detection (Type-1 & Type-2 clones)
 
 ## Known Bugs
 
@@ -58,7 +59,7 @@
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 16 | Duplication/clone detection | | Major complexity signal not currently captured |
+| 16 | Duplication/clone detection | ✅ Done | Token-based Type-2 clone detection (Rabin-Karp rolling hash); `duplication.py` module; `--no-duplication` flag; NCS factor integration |
 | 17 | VS Code extension | | Inline complexity display, hotspot highlighting |
 | 18 | Trend visualization (sparklines/charts) | | `trend` command outputs ASCII table; no charts yet |
 | 19 | Docker image | | Pre-built image with all language extras |
@@ -84,9 +85,8 @@ A function dropping from CC=141 to CC=18 reduces severity by 123 points, rather 
 only registering when it crosses below the threshold entirely. Language-aware thresholds
 are used via `config.get_hotspot_threshold(lang)`.
 
-## Recommended Next Steps (Top 4)
+## Recommended Next Steps (Top 3)
 
-1. **Duplication/clone detection** (#16) — Major complexity signal not currently captured
-2. **Trend visualization** (#18) — sparklines/charts for the `trend` command
-3. **Docker image** (#19) — Pre-built image with all language extras
-4. **Monorepo support** (#20) — Per-package thresholds and reporting
+1. **Trend visualization** (#18) — sparklines/charts for the `trend` command
+2. **Docker image** (#19) — Pre-built image with all language extras
+3. **Monorepo support** (#20) — Per-package thresholds and reporting

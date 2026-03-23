@@ -75,6 +75,9 @@ def _build_config(args, target):
         overrides["ncs_model"] = args.ncs_model
     if getattr(args, "include_tests", False):
         overrides["include_tests"] = True
+    dup_min = getattr(args, "duplication_min_tokens", None)
+    if dup_min is not None:
+        overrides["duplication_min_tokens"] = dup_min
     return merge_cli_overrides(config, **overrides)
 
 
@@ -94,9 +97,10 @@ def _setup_cache(args, target):
 
 
 def _compute_factors(args, target, config):
-    """Compute churn and coupling factors. Returns (churn_factor, coupling_factor)."""
+    """Compute churn, coupling, and duplication factors."""
     churn_factor = 1.0
     coupling_factor = 1.0
+    duplication_factor = 1.0
 
     if not args.no_coupling:
         try:
@@ -116,7 +120,19 @@ def _compute_factors(args, target, config):
         except Exception:
             pass
 
-    return churn_factor, coupling_factor
+    if not getattr(args, "no_duplication", False):
+        try:
+            from .duplication import analyze_directory_duplication, compute_duplication_factor
+            dup_data = analyze_directory_duplication(
+                str(target),
+                include_tests=config.include_tests,
+                min_tokens=config.duplication_min_tokens,
+            )
+            duplication_factor = compute_duplication_factor(dup_data)
+        except Exception:
+            pass
+
+    return churn_factor, coupling_factor, duplication_factor
 
 
 def _format_text_report(result, ncs, config, explanation, args, out):
@@ -140,6 +156,9 @@ def _format_text_report(result, ncs, config, explanation, args, out):
         print(f"  Churn factor:         {churn_factor:.3f}", file=out)
     if coupling_factor != 1.0:
         print(f"  Coupling factor:      {coupling_factor:.3f}", file=out)
+    duplication_factor = explanation['duplication_factor'] if explanation else 1.0
+    if duplication_factor != 1.0:
+        print(f"  Duplication factor:   {duplication_factor:.3f}", file=out)
     print(f"  Avg MI:               {s['avg_maintainability_index']}", file=out)
     print(file=out)
 
@@ -175,6 +194,11 @@ def _print_ncs_breakdown(explanation, config, out):
     print(
         f"    Coupling effect:   {explanation['coupling_contribution']:+7.2f}"
         f"  (factor={explanation['coupling_factor']:.3f})",
+        file=out,
+    )
+    print(
+        f"    Duplication effect:{explanation['duplication_contribution']:+7.2f}"
+        f"  (factor={explanation['duplication_factor']:.3f})",
         file=out,
     )
     print(
@@ -257,13 +281,13 @@ def cmd_scan(args):
     from .scanner import set_cache
     set_cache(None)
 
-    churn_factor, coupling_factor = _compute_factors(args, target, config)
-    ncs = result.compute_ncs(config, churn_factor=churn_factor, coupling_factor=coupling_factor)
+    churn_factor, coupling_factor, duplication_factor = _compute_factors(args, target, config)
+    ncs = result.compute_ncs(config, churn_factor=churn_factor, coupling_factor=coupling_factor, duplication_factor=duplication_factor)
 
     explanation = None
     if not args.brief:
         explanation = result.compute_ncs_explained(
-            config, churn_factor=churn_factor, coupling_factor=coupling_factor
+            config, churn_factor=churn_factor, coupling_factor=coupling_factor, duplication_factor=duplication_factor
         )
 
     output_format = _get_format(args)
@@ -274,6 +298,7 @@ def cmd_scan(args):
             data["summary"]["net_complexity_score"] = ncs
             data["summary"]["churn_factor"] = round(churn_factor, 4)
             data["summary"]["coupling_factor"] = round(coupling_factor, 4)
+            data["summary"]["duplication_factor"] = round(duplication_factor, 4)
             data["summary"]["ncs_model"] = config.ncs_model
             if explanation is not None:
                 data["explanation"] = explanation
@@ -285,6 +310,7 @@ def cmd_scan(args):
             data["summary"]["net_complexity_score"] = ncs
             data["summary"]["churn_factor"] = round(churn_factor, 4)
             data["summary"]["coupling_factor"] = round(coupling_factor, 4)
+            data["summary"]["duplication_factor"] = round(duplication_factor, 4)
             html = generate_html_report(
                 data, ncs, config=config, explanation=explanation, top_n=args.top
             )
@@ -408,6 +434,11 @@ def main():
     scan_p.add_argument("--churn-commits", type=int, default=None)
     scan_p.add_argument("--no-churn", action="store_true", help="Disable churn factor")
     scan_p.add_argument("--no-coupling", action="store_true", help="Disable coupling factor")
+    scan_p.add_argument("--no-duplication", action="store_true", help="Disable duplication factor")
+    scan_p.add_argument(
+        "--duplication-min-tokens", type=int, default=None,
+        help="Minimum token sequence length for clone detection (default: 50)",
+    )
     scan_p.add_argument(
         "--no-cache", action="store_true", help="Disable content-hash caching"
     )

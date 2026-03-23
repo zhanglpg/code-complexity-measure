@@ -36,6 +36,7 @@ python -m complexity_accounting scan . --fail-above 8
 | **Class Complexity** | Total cognitive + WMC (Weighted Methods per Class) | Identifies god classes and bloated abstractions |
 | **Churn Factor** | How frequently files change | Penalizes volatile, complex code |
 | **Coupling Factor** | Import fan-out (efferent coupling) | Penalizes tightly coupled modules |
+| **Duplication Factor** | Token-based clone detection (Type-1 & Type-2) | Penalizes copy-paste code that inflates maintenance cost |
 | **Maintainability Index** | Composite metric (0-100) | Industry-standard maintainability score |
 
 ### Net Complexity Score (NCS)
@@ -49,6 +50,7 @@ NCS = (w_cog * avg_cognitive + w_cyc * avg_cyclomatic)
       * (1 + hotspot_ratio)
       * churn_factor
       * coupling_factor
+      * duplication_factor
       * mi_factor
 ```
 
@@ -61,6 +63,7 @@ NCS = base
       + w_hotspot * (hotspot_ratio * 10)
       + w_churn * ((churn_factor - 1) * 10)
       + w_coupling * ((coupling_factor - 1) * 10)
+      + w_duplication * ((duplication_factor - 1) * 10)
       + w_mi * ((100 - avg_mi) / 10)
 ```
 
@@ -72,8 +75,9 @@ Each factor contributes an independent, bounded penalty. Score changes are predi
 - **hotspot_ratio** = sum of excess complexity above threshold / (total functions * threshold) — severity-weighted, not a binary count
 - **churn_factor** = 1.0 + log(avg_file_churn) / 10
 - **coupling_factor** = 1.0 + avg_efferent_coupling / max_efferent_coupling
+- **duplication_factor** = 1.0 + avg_duplication_ratio — token-based clone detection across all files (range 1.0–2.0)
 - **mi_factor** = 1.0 + max(0, (50 - avg_mi) / 50) — penalizes low maintainability (range 1.0–2.0)
-- **Additive weights** — hotspot: 0.2, churn: 0.1, coupling: 0.1, mi: 0.1 (configurable)
+- **Additive weights** — hotspot: 0.2, churn: 0.1, coupling: 0.1, duplication: 0.15, mi: 0.1 (configurable)
 - Rating: low <=3 | moderate <=6 | concerning <=10 | critical >10
 
 #### Which model should I use?
@@ -84,7 +88,7 @@ Each factor contributes an independent, bounded penalty. Score changes are predi
 | Risk assessment & prioritization | **multiplicative** — co-occurring problems are flagged proportionally |
 | Gradual tech debt reduction | **additive** — predictable score movement per fix |
 | Team dashboards & trend tracking | **additive** — bounded, stable increments are easier to chart |
-| Fine-grained weight tuning | **additive** — 6 independent weights vs 2 |
+| Fine-grained weight tuning | **additive** — 7 independent weights vs 2 |
 
 ## Supported Languages
 
@@ -119,6 +123,8 @@ python -m complexity_accounting scan <path> [options]
 | `--churn-commits N` | Max commits for churn analysis | 100 |
 | `--no-churn` | Skip churn factor calculation | off |
 | `--no-coupling` | Skip coupling factor calculation | off |
+| `--no-duplication` | Skip duplication factor calculation | off |
+| `--duplication-min-tokens N` | Minimum token sequence length for clone detection | 50 |
 | `--no-cache` | Disable content-hash caching | off |
 | `--ncs-model MODEL` | NCS formula: `multiplicative` (compounding, risk-focused) or `additive` (linear, progress-focused) | `multiplicative` |
 | `--brief` | Hide NCS factor breakdown (shown by default) | off |

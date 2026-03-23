@@ -42,6 +42,10 @@ class Config:
     weight_churn: float = 0.1
     weight_coupling: float = 0.1
     weight_mi: float = 0.1
+    weight_duplication: float = 0.15
+
+    # Duplication detection settings
+    duplication_min_tokens: int = 50
 
     # Churn settings
     churn_days: int = 90
@@ -87,6 +91,8 @@ _KEY_MAP = {
     "churn-commits": "churn_commits",
     "include-tests": "include_tests",
     "weight-mi": "weight_mi",
+    "weight-duplication": "weight_duplication",
+    "duplication-min-tokens": "duplication_min_tokens",
 }
 
 
