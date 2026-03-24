@@ -159,22 +159,25 @@ _LANG_IMPORT_TYPES = {
 }
 
 
+def _go_import_path(spec_node) -> str:
+    """Extract the import path string from a Go import_spec node, or ''."""
+    path_node = spec_node.child_by_field_name("path")
+    return path_node.text.decode().strip('"') if path_node else ""
+
+
 def _extract_go_imports(node) -> List[str]:
     """Extract import paths from a Go import_declaration."""
     imports = []
     for child in node.children:
         if child.type == "import_spec":
-            path_node = child.child_by_field_name("path")
-            if path_node:
-                # Strip quotes from the interpreted_string_literal
-                path = path_node.text.decode().strip('"')
+            path = _go_import_path(child)
+            if path:
                 imports.append(path)
         elif child.type == "import_spec_list":
             for spec in child.children:
                 if spec.type == "import_spec":
-                    path_node = spec.child_by_field_name("path")
-                    if path_node:
-                        path = path_node.text.decode().strip('"')
+                    path = _go_import_path(spec)
+                    if path:
                         imports.append(path)
     return imports
 
@@ -302,7 +305,7 @@ def analyze_file_coupling_treesitter(file_path: str, language: str) -> CouplingM
 
 def analyze_file_coupling_any(file_path: str) -> CouplingMetrics:
     """Analyze imports in any supported source file."""
-    from .models import EXTENSION_LANGUAGE_MAP
+    from .scanner import EXTENSION_LANGUAGE_MAP
 
     ext = Path(file_path).suffix.lower()
     language = EXTENSION_LANGUAGE_MAP.get(ext)

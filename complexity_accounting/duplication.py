@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .models import EXTENSION_LANGUAGE_MAP
+from .scanner import EXTENSION_LANGUAGE_MAP
 
 
 # ---------------------------------------------------------------------------
@@ -82,35 +82,39 @@ _FSTRING_TOKEN_TYPES = frozenset(
 )
 
 
+def _classify_python_token(tok_type: int, tok_string: str) -> str:
+    """Map a Python token to a normalized kind string."""
+    import tokenize
+    if tok_type == tokenize.NAME:
+        return tok_string if tok_string in _PYTHON_KEYWORDS else "$ID"
+    if tok_type == tokenize.NUMBER:
+        return "$NUM"
+    if tok_type == tokenize.STRING or tok_type in _FSTRING_TOKEN_TYPES:
+        return "$STR"
+    return tok_string
+
+
 def _tokenize_python(source: str) -> List[_Token]:
     """Tokenize Python source into normalized tokens using the stdlib tokenizer."""
     import tokenize
     import io
 
+    _SKIP_TYPES = frozenset({
+        tokenize.ENCODING, tokenize.NEWLINE, tokenize.NL,
+        tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT,
+        tokenize.ENDMARKER,
+    })
+
     tokens: List[_Token] = []
     try:
         readline = io.BytesIO(source.encode("utf-8")).readline
         for tok in tokenize.tokenize(readline):
-            if tok.type in (tokenize.ENCODING, tokenize.NEWLINE, tokenize.NL,
-                            tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT,
-                            tokenize.ENDMARKER):
+            if tok.type in _SKIP_TYPES:
                 continue
-            line = tok.start[0]
-            if tok.type == tokenize.NAME:
-                if tok.string in _PYTHON_KEYWORDS:
-                    tokens.append(_Token(kind=tok.string, line=line))
-                else:
-                    tokens.append(_Token(kind="$ID", line=line))
-            elif tok.type == tokenize.NUMBER:
-                tokens.append(_Token(kind="$NUM", line=line))
-            elif tok.type == tokenize.STRING:
-                tokens.append(_Token(kind="$STR", line=line))
-            elif tok.type in _FSTRING_TOKEN_TYPES:
-                tokens.append(_Token(kind="$STR", line=line))
-            elif tok.type == tokenize.OP:
-                tokens.append(_Token(kind=tok.string, line=line))
-            else:
-                tokens.append(_Token(kind=tok.string, line=line))
+            tokens.append(_Token(
+                kind=_classify_python_token(tok.type, tok.string),
+                line=tok.start[0],
+            ))
     except tokenize.TokenError:
         pass
     return tokens
@@ -173,6 +177,19 @@ def _get_ts_language(lang_name: str):
         return None
 
 
+def _classify_ts_token(ntype: str, text: str) -> str:
+    """Classify a tree-sitter leaf token into a normalized kind."""
+    if ntype in _TS_ID_TYPES:
+        return "$ID"
+    if ntype in _TS_NUM_TYPES:
+        return "$NUM"
+    if ntype in _TS_STR_TYPES:
+        return "$STR"
+    if ntype in _TS_KEYWORD_TYPES or text in _TS_KEYWORD_TYPES:
+        return text
+    return text
+
+
 def _tokenize_tree_sitter(source: str, language: str) -> List[_Token]:
     """Tokenize source using tree-sitter for a given language."""
     import tree_sitter as ts
@@ -187,23 +204,10 @@ def _tokenize_tree_sitter(source: str, language: str) -> List[_Token]:
     tokens: List[_Token] = []
 
     def walk(node):
-        # Only process leaf nodes (or specific named nodes)
         if len(node.children) == 0:
-            line = node.start_point[0] + 1  # 1-indexed
-            ntype = node.type
-            text = node.text.decode() if node.text else ntype
-
-            if ntype in _TS_ID_TYPES:
-                tokens.append(_Token(kind="$ID", line=line))
-            elif ntype in _TS_NUM_TYPES:
-                tokens.append(_Token(kind="$NUM", line=line))
-            elif ntype in _TS_STR_TYPES:
-                tokens.append(_Token(kind="$STR", line=line))
-            elif ntype in _TS_KEYWORD_TYPES or text in _TS_KEYWORD_TYPES:
-                tokens.append(_Token(kind=text, line=line))
-            else:
-                # Operators, punctuation — keep as-is
-                tokens.append(_Token(kind=text, line=line))
+            line = node.start_point[0] + 1
+            text = node.text.decode() if node.text else node.type
+            tokens.append(_Token(kind=_classify_ts_token(node.type, text), line=line))
 
         for child in node.children:
             walk(child)
@@ -273,6 +277,88 @@ def _rolling_hashes(tokens: List[_Token], window: int) -> List[Tuple[int, int]]:
     return result
 
 
+def _build_hash_index(
+    file_tokens: Dict[str, List[_Token]],
+    min_tokens: int,
+) -> Dict[int, List[Tuple[str, int]]]:
+    """Build a rolling-hash index mapping hash values to (file, offset) pairs."""
+    hash_index: Dict[int, List[Tuple[str, int]]] = {}
+    for fpath, tokens in file_tokens.items():
+        for h, idx in _rolling_hashes(tokens, min_tokens):
+            hash_index.setdefault(h, []).append((fpath, idx))
+    return hash_index
+
+
+def _verify_match(
+    toks_a: List[_Token], start_a: int,
+    toks_b: List[_Token], start_b: int,
+    length: int,
+) -> bool:
+    """Return True if two token windows match token-by-token."""
+    for k in range(length):
+        if toks_a[start_a + k].kind != toks_b[start_b + k].kind:
+            return False
+    return True
+
+
+def _group_verified_locations(
+    locations: List[Tuple[str, int]],
+    file_tokens: Dict[str, List[_Token]],
+    min_tokens: int,
+) -> List[List[Tuple[str, int]]]:
+    """Group hash-colliding locations into verified match groups."""
+    matched_groups: List[List[Tuple[str, int]]] = []
+    used = [False] * len(locations)
+
+    for i in range(len(locations)):
+        if used[i]:
+            continue
+        fp_i, idx_i = locations[i]
+        toks_i = file_tokens[fp_i]
+        group = [(fp_i, idx_i)]
+        used[i] = True
+
+        for j in range(i + 1, len(locations)):
+            if used[j]:
+                continue
+            fp_j, idx_j = locations[j]
+            if fp_i == fp_j and abs(idx_i - idx_j) < min_tokens:
+                continue
+            if _verify_match(toks_i, idx_i, file_tokens[fp_j], idx_j, min_tokens):
+                group.append((fp_j, idx_j))
+                used[j] = True
+
+        if len(group) >= 2:
+            matched_groups.append(group)
+    return matched_groups
+
+
+def _build_clone_set(
+    group: List[Tuple[str, int]],
+    file_tokens: Dict[str, List[_Token]],
+    min_tokens: int,
+    claimed: Dict[str, set],
+) -> Optional[CloneSet]:
+    """Build a CloneSet from a verified group, respecting claimed ranges."""
+    for fp, idx in group:
+        token_range = set(range(idx, idx + min_tokens))
+        if len(token_range & claimed[fp]) > min_tokens // 2:
+            return None
+
+    blocks = []
+    for fp, idx in group:
+        toks = file_tokens[fp]
+        blocks.append(CloneBlock(
+            file_path=fp,
+            start_line=toks[idx].line,
+            end_line=toks[idx + min_tokens - 1].line,
+            token_count=min_tokens,
+        ))
+        claimed[fp].update(range(idx, idx + min_tokens))
+
+    return CloneSet(blocks=blocks, token_count=min_tokens) if len(blocks) >= 2 else None
+
+
 def find_clones(
     file_tokens: Dict[str, List[_Token]],
     min_tokens: int = 50,
@@ -286,90 +372,17 @@ def find_clones(
     if not file_tokens:
         return []
 
-    # Build hash index: hash_value -> [(file_path, start_index)]
-    hash_index: Dict[int, List[Tuple[str, int]]] = {}
-    file_hashes: Dict[str, List[Tuple[int, int]]] = {}
-
-    for fpath, tokens in file_tokens.items():
-        hashes = _rolling_hashes(tokens, min_tokens)
-        file_hashes[fpath] = hashes
-        for h, idx in hashes:
-            hash_index.setdefault(h, []).append((fpath, idx))
-
-    # Find matching pairs (where hash has 2+ entries)
-    # Track which token ranges are already claimed as clones
+    hash_index = _build_hash_index(file_tokens, min_tokens)
     claimed: Dict[str, set] = {fp: set() for fp in file_tokens}
     clone_sets: List[CloneSet] = []
 
-    for h, locations in hash_index.items():
+    for locations in hash_index.values():
         if len(locations) < 2:
             continue
-
-        # Verify actual matches (hash collision check) and build clone sets
-        # Group locations that actually match each other
-        matched_groups: List[List[Tuple[str, int]]] = []
-        used = [False] * len(locations)
-
-        for i in range(len(locations)):
-            if used[i]:
-                continue
-            fp_i, idx_i = locations[i]
-            toks_i = file_tokens[fp_i]
-            group = [(fp_i, idx_i)]
-            used[i] = True
-
-            for j in range(i + 1, len(locations)):
-                if used[j]:
-                    continue
-                fp_j, idx_j = locations[j]
-
-                # Skip if same file and overlapping
-                if fp_i == fp_j and abs(idx_i - idx_j) < min_tokens:
-                    continue
-
-                toks_j = file_tokens[fp_j]
-                # Verify token-by-token match
-                match = True
-                for k in range(min_tokens):
-                    if toks_i[idx_i + k].kind != toks_j[idx_j + k].kind:
-                        match = False
-                        break
-
-                if match:
-                    group.append((fp_j, idx_j))
-                    used[j] = True
-
-            if len(group) >= 2:
-                matched_groups.append(group)
-
-        for group in matched_groups:
-            blocks = []
-            skip = False
-            for fp, idx in group:
-                # Check if this range is already claimed
-                token_range = set(range(idx, idx + min_tokens))
-                overlap = token_range & claimed[fp]
-                if len(overlap) > min_tokens // 2:
-                    skip = True
-                    break
-
-            if skip:
-                continue
-
-            for fp, idx in group:
-                toks = file_tokens[fp]
-                start_line = toks[idx].line
-                end_line = toks[idx + min_tokens - 1].line
-                blocks.append(CloneBlock(
-                    file_path=fp,
-                    start_line=start_line,
-                    end_line=end_line,
-                    token_count=min_tokens,
-                ))
-                claimed[fp].update(range(idx, idx + min_tokens))
-
-            if len(blocks) >= 2:
-                clone_sets.append(CloneSet(blocks=blocks, token_count=min_tokens))
+        for group in _group_verified_locations(locations, file_tokens, min_tokens):
+            cs = _build_clone_set(group, file_tokens, min_tokens, claimed)
+            if cs is not None:
+                clone_sets.append(cs)
 
     return clone_sets
 

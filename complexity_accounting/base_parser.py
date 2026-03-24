@@ -203,80 +203,68 @@ class TreeSitterParser:
 
         Returns (complexity, max_nesting).
         """
-        complexity = 0
-        max_nesting = 0
+        state = [0, 0]  # [complexity, max_nesting]
 
         def _walk_body_children(n, nesting):
-            """Walk children, entering body_types at nesting+1."""
             for child in n.children:
-                if child.type in self.body_types:
-                    walk(child, nesting + 1)
-                else:
-                    walk(child, nesting)
+                walk(child, nesting + 1 if child.type in self.body_types else nesting)
+
+        def _add_nesting_penalty(nesting):
+            state[0] += 1 + nesting
+            state[1] = max(state[1], nesting + 1)
 
         def walk(n, nesting, parent_bool_op=None):
-            nonlocal complexity, max_nesting
+            ntype = n.type
 
-            # If statement (with else-if handling)
-            if n.type == self.if_type:
+            if ntype == self.if_type:
                 if self.is_else_if(n):
-                    complexity += 1
+                    state[0] += 1
                     for child in n.children:
                         walk(child, nesting)
                 else:
-                    complexity += 1 + nesting
-                    max_nesting = max(max_nesting, nesting + 1)
+                    _add_nesting_penalty(nesting)
                     self._walk_if_children(n, nesting, walk)
                 return
 
-            # Loops and catch: +1 complexity with nesting penalty
-            if n.type in self.loop_types or n.type in self.catch_types:
-                complexity += 1 + nesting
-                max_nesting = max(max_nesting, nesting + 1)
+            if ntype in self.loop_types or ntype in self.catch_types:
+                _add_nesting_penalty(nesting)
                 _walk_body_children(n, nesting)
                 return
 
-            # Switch / match
-            if n.type in self.switch_types:
-                complexity += 1 + nesting
-                max_nesting = max(max_nesting, nesting + 1)
+            if ntype in self.switch_types:
+                _add_nesting_penalty(nesting)
                 self._walk_switch_children(n, nesting, walk)
                 return
 
-            # Boolean operators
-            if n.type == self.binary_expr_type:
+            if ntype == self.binary_expr_type:
                 op_type = self._get_bool_op(n)
                 if op_type and op_type in self.bool_op_types:
                     if op_type != parent_bool_op:
-                        complexity += 1
+                        state[0] += 1
                     for child in n.children:
                         walk(child, nesting, parent_bool_op=op_type)
                     return
 
-            # Extra increment types (go_statement, ternary, try)
-            if n.type in self.extra_increment_types:
-                complexity += 1
+            if ntype in self.extra_increment_types:
+                state[0] += 1
                 for child in n.children:
                     walk(child, nesting)
                 return
 
-            # Break / continue (leaf)
-            if n.type in self.break_types:
-                complexity += 1
+            if ntype in self.break_types:
+                state[0] += 1
                 return
 
-            # Lambda/closure and nesting-only types: increase nesting, no complexity
-            if n.type in self.lambda_types or n.type in self.nesting_only_types:
-                max_nesting = max(max_nesting, nesting + 1)
+            if ntype in self.lambda_types or ntype in self.nesting_only_types:
+                state[1] = max(state[1], nesting + 1)
                 _walk_body_children(n, nesting)
                 return
 
-            # Default: recurse
             for child in n.children:
                 walk(child, nesting)
 
         walk(node, 0)
-        return complexity, max_nesting
+        return state[0], state[1]
 
     def _walk_if_children(self, node, nesting, walk_fn):
         """Walk children of a non-else-if if-statement."""
@@ -350,6 +338,55 @@ class TreeSitterParser:
         """Extract function metrics from the parsed tree. Subclass must implement."""
         raise NotImplementedError
 
+    # -----------------------------------------------------------------------
+    # Shared JS/TS function collection helper
+    # -----------------------------------------------------------------------
+
+    _js_skip_types: frozenset = frozenset()
+    _js_class_types: frozenset = frozenset()
+
+    def _collect_js_ts_functions(self, tree, file_path, count_params_fn):
+        """Shared collect_functions logic for JS and TS parsers."""
+        functions = []
+
+        def visit(node, class_stack):
+            if node.type == "export_statement":
+                for child in node.children:
+                    visit(child, class_stack)
+                return
+
+            if node.type in self._js_skip_types:
+                return
+
+            if node.type in self._js_class_types:
+                name_node = node.child_by_field_name("name")
+                class_name = name_node.text.decode() if name_node else "<unknown>"
+                body = node.child_by_field_name("body")
+                if body:
+                    for child in body.children:
+                        visit(child, class_stack + [class_name])
+                return
+
+            if node.type in ("method_definition", "function_declaration"):
+                _add_named_function(self, functions, node, node, class_stack,
+                                    file_path, count_params_fn)
+                return
+
+            if node.type in ("lexical_declaration", "variable_declaration"):
+                for child in node.children:
+                    if child.type == "variable_declarator":
+                        value_node = child.child_by_field_name("value")
+                        if value_node and value_node.type in ("arrow_function", "function_expression"):
+                            _add_named_function(self, functions, child, value_node,
+                                                class_stack, file_path, count_params_fn)
+                return
+
+            for child in node.children:
+                visit(child, class_stack)
+
+        visit(tree.root_node, [])
+        return functions
+
     def collect_classes(self, tree, file_path: str, source_bytes: bytes,
                         functions: List[FunctionMetrics]) -> List[ClassMetrics]:
         """Extract class-level metrics by grouping functions under their enclosing classes.
@@ -394,3 +431,17 @@ class TreeSitterParser:
 
         visit(tree.root_node)
         return classes
+
+
+def _add_named_function(parser, functions, name_source_node, body_source_node,
+                        class_stack, file_path, count_params_fn):
+    """Extract name/body/params and append a FunctionMetrics entry."""
+    name_node = name_source_node.child_by_field_name("name")
+    name = name_node.text.decode() if name_node else "<unknown>"
+    qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
+    body = body_source_node.child_by_field_name("body")
+    params_node = body_source_node.child_by_field_name("parameters")
+    functions.append(parser.build_function_metrics(
+        name_source_node, name, qualified, file_path, body,
+        count_params_fn(params_node) if params_node else 0,
+    ))

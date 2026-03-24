@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .models import FunctionMetrics, FileMetrics, compute_mi
-from .base_parser import TreeSitterParser
+from .base_parser import TreeSitterParser, FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts

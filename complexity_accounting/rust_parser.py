@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .models import FunctionMetrics, FileMetrics, compute_mi
-from .base_parser import TreeSitterParser
+from .base_parser import TreeSitterParser, FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -60,20 +59,11 @@ class RustParser(TreeSitterParser):
 
         def visit(node, scope_stack):
             if node.type == "impl_item":
-                type_ids = [c for c in node.children if c.type == "type_identifier"]
-                has_for = any(c.type == "for" for c in node.children)
-
-                if has_for and len(type_ids) >= 2:
-                    impl_type = type_ids[1].text.decode()
-                elif type_ids:
-                    impl_type = type_ids[0].text.decode()
-                else:
-                    impl_type = "<unknown>"
-
-                for child in node.children:
-                    if child.type == "declaration_list":
-                        for decl_child in child.children:
-                            visit(decl_child, scope_stack + [impl_type])
+                impl_type = _extract_impl_type(node)
+                decl_list = _find_child_by_type(node, "declaration_list")
+                if decl_list:
+                    for child in decl_list.children:
+                        visit(child, scope_stack + [impl_type])
                 return
 
             if node.type == "function_item":
@@ -93,6 +83,17 @@ class RustParser(TreeSitterParser):
 
         visit(tree.root_node, [])
         return functions
+
+
+def _extract_impl_type(node) -> str:
+    """Extract the implementing type name from an impl_item node."""
+    type_ids = [c for c in node.children if c.type == "type_identifier"]
+    has_for = any(c.type == "for" for c in node.children)
+    if has_for and len(type_ids) >= 2:
+        return type_ids[1].text.decode()
+    if type_ids:
+        return type_ids[0].text.decode()
+    return "<unknown>"
 
 
 def _find_child_by_type(node, type_name: str):

@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .models import FunctionMetrics, FileMetrics, compute_mi
-from .base_parser import TreeSitterParser
+from .base_parser import TreeSitterParser, FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -54,6 +53,8 @@ class JsParser(TreeSitterParser):
         "catch_clause", "ternary_expression",
     })
 
+    _js_class_types = frozenset({"class_declaration"})
+
     def is_else_if(self, node) -> bool:
         return (
             node.parent
@@ -63,60 +64,7 @@ class JsParser(TreeSitterParser):
         )
 
     def collect_functions(self, tree, file_path: str, source_bytes: bytes) -> List[FunctionMetrics]:
-        functions = []
-
-        def visit(node, class_stack):
-            if node.type == "export_statement":
-                for child in node.children:
-                    visit(child, class_stack)
-                return
-
-            if node.type == "class_declaration":
-                name_node = node.child_by_field_name("name")
-                class_name = name_node.text.decode() if name_node else "<unknown>"
-                body = node.child_by_field_name("body")
-                if body:
-                    for child in body.children:
-                        visit(child, class_stack + [class_name])
-                return
-
-            if node.type in ("method_definition", "function_declaration"):
-                name_node = node.child_by_field_name("name")
-                name = name_node.text.decode() if name_node else "<unknown>"
-                qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-                body = node.child_by_field_name("body")
-                params_node = node.child_by_field_name("parameters")
-
-                functions.append(self.build_function_metrics(
-                    node, name, qualified, file_path, body,
-                    _count_params(params_node) if params_node else 0,
-                ))
-                return
-
-            if node.type in ("lexical_declaration", "variable_declaration"):
-                for child in node.children:
-                    if child.type == "variable_declarator":
-                        name_node = child.child_by_field_name("name")
-                        value_node = child.child_by_field_name("value")
-                        if value_node and value_node.type in ("arrow_function", "function_expression"):
-                            name = name_node.text.decode() if name_node else "<unknown>"
-                            qualified = f"{'.'.join(class_stack)}.{name}" if class_stack else name
-
-                            body = value_node.child_by_field_name("body")
-                            params_node = value_node.child_by_field_name("parameters")
-
-                            functions.append(self.build_function_metrics(
-                                child, name, qualified, file_path, body,
-                                _count_params(params_node) if params_node else 0,
-                            ))
-                return
-
-            for child in node.children:
-                visit(child, class_stack)
-
-        visit(tree.root_node, [])
-        return functions
+        return self._collect_js_ts_functions(tree, file_path, _count_params)
 
 
 def _count_params(formal_params_node) -> int:

@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .models import FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
-from .base_parser import TreeSitterParser
+from .base_parser import TreeSitterParser, FunctionMetrics, FileMetrics, ClassMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -118,19 +117,25 @@ class GoParser(TreeSitterParser):
         return classes
 
 
+def _type_identifier_from_param(param_decl) -> str:
+    """Extract a type_identifier from a parameter_declaration, unwrapping pointer_type."""
+    for tc in param_decl.children:
+        if tc.type == "type_identifier":
+            return tc.text.decode()
+        if tc.type == "pointer_type":
+            for inner in tc.children:
+                if inner.type == "type_identifier":
+                    return inner.text.decode()
+    return ""
+
+
 def _extract_receiver_type(method_node) -> str:
     """Extract the receiver type name from a Go method_declaration."""
     for child in method_node.children:
         if child.type == "parameter_list":
             for param in child.children:
                 if param.type == "parameter_declaration":
-                    for tc in param.children:
-                        if tc.type == "type_identifier":
-                            return tc.text.decode()
-                        if tc.type == "pointer_type":
-                            for inner in tc.children:
-                                if inner.type == "type_identifier":
-                                    return inner.text.decode()
+                    return _type_identifier_from_param(param)
             break
     return ""
 

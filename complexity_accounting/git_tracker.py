@@ -15,8 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
-from .models import ScanResult, FileMetrics, SUPPORTED_EXTENSIONS, TEST_FILE_PATTERNS
-from .scanner import scan_directory, scan_file
+from .scanner import (
+    scan_directory, scan_file,
+    ScanResult, FileMetrics, SUPPORTED_EXTENSIONS, TEST_FILE_PATTERNS,
+)
 
 
 @dataclass

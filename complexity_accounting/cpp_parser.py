@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .models import FunctionMetrics, FileMetrics, compute_mi
-from .base_parser import TreeSitterParser
+from .base_parser import TreeSitterParser, FunctionMetrics, FileMetrics, compute_mi
 
 try:
     import tree_sitter as ts
@@ -62,54 +61,60 @@ class CppParser(TreeSitterParser):
 
         def visit(node, scope_stack):
             if node.type == "namespace_definition":
-                name_node = None
-                for child in node.children:
-                    if child.type == "namespace_identifier":
-                        name_node = child
-                        break
-                ns_name = name_node.text.decode() if name_node else "<anonymous>"
-                for child in node.children:
-                    if child.type == "declaration_list":
-                        for decl_child in child.children:
-                            visit(decl_child, scope_stack + [ns_name])
-                return
-
-            if node.type in ("class_specifier", "struct_specifier"):
-                name_node = None
-                for child in node.children:
-                    if child.type == "type_identifier":
-                        name_node = child
-                        break
-                class_name = name_node.text.decode() if name_node else "<anonymous>"
-                for child in node.children:
-                    if child.type == "field_declaration_list":
-                        for field_child in child.children:
-                            visit(field_child, scope_stack + [class_name])
-                return
-
-            if node.type == "template_declaration":
-                for child in node.children:
-                    if child.type in ("function_definition", "class_specifier", "struct_specifier"):
-                        visit(child, scope_stack)
-                return
-
-            if node.type == "function_definition":
+                _visit_namespace(node, scope_stack, visit)
+            elif node.type in ("class_specifier", "struct_specifier"):
+                _visit_class_or_struct(node, scope_stack, visit)
+            elif node.type == "template_declaration":
+                _visit_template(node, scope_stack, visit)
+            elif node.type == "function_definition":
                 name = _get_function_name(node)
                 qualified = f"{'.'.join(scope_stack)}.{name}" if scope_stack else name
-
-                body = node.child_by_field_name("body")
-
                 functions.append(self.build_function_metrics(
-                    node, name, qualified, file_path, body,
+                    node, name, qualified, file_path,
+                    node.child_by_field_name("body"),
                     _count_params(node),
                 ))
-                return
-
-            for child in node.children:
-                visit(child, scope_stack)
+            else:
+                for child in node.children:
+                    visit(child, scope_stack)
 
         visit(tree.root_node, [])
         return functions
+
+
+def _find_child_by_type(node, type_name):
+    """Find the first child with the given node type."""
+    for child in node.children:
+        if child.type == type_name:
+            return child
+    return None
+
+
+def _visit_namespace(node, scope_stack, visit_fn):
+    """Visit a namespace_definition, recursing into its declaration_list."""
+    name_node = _find_child_by_type(node, "namespace_identifier")
+    ns_name = name_node.text.decode() if name_node else "<anonymous>"
+    decl_list = _find_child_by_type(node, "declaration_list")
+    if decl_list:
+        for child in decl_list.children:
+            visit_fn(child, scope_stack + [ns_name])
+
+
+def _visit_class_or_struct(node, scope_stack, visit_fn):
+    """Visit a class/struct specifier, recursing into its field list."""
+    name_node = _find_child_by_type(node, "type_identifier")
+    class_name = name_node.text.decode() if name_node else "<anonymous>"
+    field_list = _find_child_by_type(node, "field_declaration_list")
+    if field_list:
+        for child in field_list.children:
+            visit_fn(child, scope_stack + [class_name])
+
+
+def _visit_template(node, scope_stack, visit_fn):
+    """Visit a template_declaration, recursing into function/class children."""
+    for child in node.children:
+        if child.type in ("function_definition", "class_specifier", "struct_specifier"):
+            visit_fn(child, scope_stack)
 
 
 def _get_function_name(func_node) -> str:
