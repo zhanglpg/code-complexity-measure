@@ -28,6 +28,7 @@ def test_analyze_churn_not_a_repo():
     with tempfile.TemporaryDirectory() as tmpdir:
         result = analyze_churn(tmpdir)
         assert result == {}
+        assert len(result) == 0
 
 
 def test_analyze_churn_parses_numstat():
@@ -59,6 +60,7 @@ def test_analyze_churn_subprocess_timeout():
                side_effect=subprocess.TimeoutExpired("git", 30)):
         result = analyze_churn("/fake/repo")
     assert result == {}
+    assert len(result) == 0
 
 
 def test_analyze_churn_oserror():

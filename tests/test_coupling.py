@@ -194,6 +194,8 @@ def test_star_import_import_statement():
         m = analyze_file_coupling(path)
         # The star import is skipped; requests is counted
         assert "requests" in m.imports
+        assert "somelib" in m.imports
+        assert m.efferent_coupling == 2
     finally:
         os.unlink(path)
 
