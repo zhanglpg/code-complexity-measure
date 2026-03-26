@@ -143,6 +143,8 @@ def test_while_continue():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 4  # 1 + 2 + 1
+        assert fn.name == "process"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -152,6 +154,8 @@ def test_net_complexity_score():
     result = ScanResult()
     # Empty scan
     assert result.net_complexity_score == 0.0
+    assert result.total_functions == 0
+    assert result.total_cognitive == 0
 
 
 def test_scan_directory():
