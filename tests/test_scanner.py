@@ -50,6 +50,8 @@ def test_nested_ifs():
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 6  # 1 + 2 + 3
         assert fn.max_nesting >= 3
+        assert fn.name == "check"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -66,6 +68,8 @@ def test_for_with_break():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 4  # 1 + 2 + 1
+        assert fn.name == "find"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -81,6 +85,8 @@ def test_boolean_ops():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity >= 2
+        assert fn.name == "validate"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -116,6 +122,8 @@ def test_try_except():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 2
+        assert fn.name == "risky"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 

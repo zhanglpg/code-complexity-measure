@@ -106,6 +106,8 @@ def test_churn_factor_high_churn():
     factor = compute_churn_factor(data)
     assert factor > 1.0
     assert factor < 2.0  # bounded by log scale
+    expected = round(1.0 + math.log1p(100) / 10, 4)
+    assert factor == expected
 
 
 if __name__ == "__main__":
