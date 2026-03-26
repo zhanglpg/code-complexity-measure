@@ -45,6 +45,7 @@ def test_no_imports():
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
         assert m.imports == []
+        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 
@@ -59,6 +60,8 @@ def test_stdlib_only():
     try:
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
+        assert m.imports == []
+        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 

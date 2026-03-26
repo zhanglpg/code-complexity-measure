@@ -293,6 +293,7 @@ def test_ncs_additive_with_duplication_factor():
     ncs_no_dup = result.compute_ncs(config, duplication_factor=1.0)
     ncs_with_dup = result.compute_ncs(config, duplication_factor=1.5)
     assert ncs_with_dup > ncs_no_dup
+    assert ncs_no_dup != ncs_with_dup
 
 
 def test_ncs_explained_includes_duplication():
@@ -322,6 +323,7 @@ def test_ncs_explained_empty_includes_duplication():
     assert "duplication_factor" in explanation
     assert "duplication_contribution" in explanation
     assert explanation["duplication_factor"] == 1.2
+    assert explanation["ncs"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -335,6 +337,7 @@ def test_config_has_duplication_fields():
     assert hasattr(config, "duplication_min_tokens")
     assert config.weight_duplication == 0.15
     assert config.duplication_min_tokens == 50
+    assert config.ncs_model == "multiplicative"
 
 
 if __name__ == "__main__":
