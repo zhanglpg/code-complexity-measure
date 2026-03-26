@@ -75,6 +75,7 @@ def test_dedup_top_level():
         m = analyze_file_coupling(path)
         # Both are 'requests' top-level, counted once
         assert m.efferent_coupling == 1
+        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -125,6 +126,7 @@ def test_relative_import():
         # Relative imports: '..core' resolves to 'core' which is not stdlib
         assert m.efferent_coupling == 1
         assert "core" in m.imports
+        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -138,6 +140,7 @@ def test_star_import():
         # Star import from external package counts as coupling
         assert m.efferent_coupling == 1
         assert "somelib" in m.imports
+        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
