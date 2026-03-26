@@ -4,8 +4,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_go
+
 from complexity_accounting.go_parser import scan_go_file, count_go_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+pytestmark = requires_go
 
 
 def _write_temp_go(source: str) -> str:

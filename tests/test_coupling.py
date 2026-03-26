@@ -119,8 +119,9 @@ def test_relative_import():
     """)
     try:
         m = analyze_file_coupling(path)
-        # Should not crash; relative imports have module names
-        assert isinstance(m, CouplingMetrics)
+        # Relative imports: '..core' resolves to 'core' which is not stdlib
+        assert m.efferent_coupling == 1
+        assert "core" in m.imports
     finally:
         os.unlink(path)
 
@@ -131,8 +132,9 @@ def test_star_import():
     """)
     try:
         m = analyze_file_coupling(path)
-        # ImportStar is handled gracefully
-        assert isinstance(m, CouplingMetrics)
+        # Star import from external package counts as coupling
+        assert m.efferent_coupling == 1
+        assert "somelib" in m.imports
     finally:
         os.unlink(path)
 
@@ -197,8 +199,9 @@ def test_dotted_name_nested_attribute():
     """)
     try:
         m = analyze_file_coupling(path)
-        # a.b.c.d → top-level module is 'a'
-        assert isinstance(m, CouplingMetrics)
+        # a.b.c.d → top-level module is 'a', counted as 1 external coupling
+        assert m.efferent_coupling == 1
+        assert "a.b.c.d" in m.imports
     finally:
         os.unlink(path)
 

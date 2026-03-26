@@ -4,8 +4,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_cpp
+
 from complexity_accounting.cpp_parser import scan_cpp_file, count_cpp_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+pytestmark = requires_cpp
 
 
 def _write_temp_cpp(source: str) -> str:

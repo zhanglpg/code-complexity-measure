@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import requires_go, requires_java, requires_cpp, requires_js, requires_ts, requires_rust
+
 from complexity_accounting.scanner import scan_file, scan_directory, ScanResult
 from complexity_accounting.config import load_config
 from complexity_accounting.__main__ import cmd_scan, cmd_compare, cmd_trend
@@ -217,6 +219,7 @@ class TestRealGitRepo:
         assert "hot.py" in churn
         assert churn["hot.py"] >= 2  # changed in multiple commits
 
+    @requires_java
     def test_compare_refs_java_file(self, tmp_git_repo):
         """compare_refs detects modified Java files between real commits."""
         from complexity_accounting.git_tracker import compare_refs
@@ -249,6 +252,7 @@ class TestRealGitRepo:
         assert deltas["App.java"].status == "modified"
         assert deltas["App.java"].cognitive_delta > 0
 
+    @requires_cpp
     def test_compare_refs_cpp_file(self, tmp_git_repo):
         """compare_refs detects modified C++ files between real commits."""
         from complexity_accounting.git_tracker import compare_refs
@@ -280,6 +284,7 @@ class TestRealGitRepo:
         assert deltas["app.cpp"].status == "modified"
         assert deltas["app.cpp"].cognitive_delta > 0
 
+    @requires_js
     def test_compare_refs_js_file(self, tmp_git_repo):
         """compare_refs detects modified JavaScript files between real commits."""
         from complexity_accounting.git_tracker import compare_refs
@@ -310,6 +315,7 @@ class TestRealGitRepo:
         assert deltas["app.js"].status == "modified"
         assert deltas["app.js"].cognitive_delta > 0
 
+    @requires_ts
     def test_compare_refs_ts_file(self, tmp_git_repo):
         """compare_refs detects modified TypeScript files between real commits."""
         from complexity_accounting.git_tracker import compare_refs
@@ -340,6 +346,7 @@ class TestRealGitRepo:
         assert deltas["app.ts"].status == "modified"
         assert deltas["app.ts"].cognitive_delta > 0
 
+    @requires_rust
     def test_compare_refs_rust_file(self, tmp_git_repo):
         """compare_refs detects modified Rust files between real commits."""
         from complexity_accounting.git_tracker import compare_refs
@@ -371,6 +378,12 @@ class TestRealGitRepo:
         assert deltas["app.rs"].status == "modified"
         assert deltas["app.rs"].cognitive_delta > 0
 
+    @requires_go
+    @requires_java
+    @requires_cpp
+    @requires_js
+    @requires_ts
+    @requires_rust
     def test_scan_directory_mixed_seven_languages(self, tmp_git_repo):
         """scan_directory picks up .py, .go, .java, .cpp, .js, .ts, and .rs files together."""
         import tempfile
@@ -507,6 +520,7 @@ class TestCLIWorkflow:
         assert isinstance(data, list)
         assert len(data) == 2
 
+    @requires_java
     def test_cli_scan_java_file(self, tmp_git_repo):
         """cmd_scan produces valid JSON for a Java file."""
         import tempfile
@@ -530,6 +544,7 @@ class TestCLIWorkflow:
                     func_names.append(fn["name"])
             assert "add" in func_names
 
+    @requires_cpp
     def test_cli_scan_cpp_file(self, tmp_git_repo):
         """cmd_scan produces valid JSON for a C++ file."""
         import tempfile
@@ -551,6 +566,7 @@ class TestCLIWorkflow:
                     func_names.append(fn["name"])
             assert "add" in func_names
 
+    @requires_js
     def test_cli_scan_js_file(self, tmp_git_repo):
         """cmd_scan produces valid JSON for a JavaScript file."""
         import tempfile
@@ -572,6 +588,7 @@ class TestCLIWorkflow:
                     func_names.append(fn["name"])
             assert "add" in func_names
 
+    @requires_ts
     def test_cli_scan_ts_file(self, tmp_git_repo):
         """cmd_scan produces valid JSON for a TypeScript file."""
         import tempfile
@@ -593,6 +610,7 @@ class TestCLIWorkflow:
                     func_names.append(fn["name"])
             assert "add" in func_names
 
+    @requires_rust
     def test_cli_scan_rust_file(self, tmp_git_repo):
         """cmd_scan produces valid JSON for a Rust file."""
         import tempfile

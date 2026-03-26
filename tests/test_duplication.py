@@ -50,16 +50,22 @@ def test_compute_duplication_factor_bounded():
     }
     factor = compute_duplication_factor(data)
     assert factor <= 2.0
+    assert factor == 2.0
 
 
 def test_duplication_ratio_property():
     m = DuplicationMetrics(file_path="x.py", duplicated_lines=25, total_lines=100)
     assert m.duplication_ratio == 0.25
+    assert m.duplicated_lines == 25
+    assert m.total_lines == 100
+    assert m.file_path == "x.py"
 
 
 def test_duplication_ratio_zero_lines():
     m = DuplicationMetrics(file_path="x.py", duplicated_lines=0, total_lines=0)
     assert m.duplication_ratio == 0.0
+    assert m.duplicated_lines == 0
+    assert m.total_lines == 0
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +75,12 @@ def test_duplication_ratio_zero_lines():
 def test_tokenize_python_basic():
     source = "x = 1\ny = 2\n"
     tokens = _tokenize_python(source)
-    assert len(tokens) > 0
+    assert len(tokens) >= 6  # x = 1 NEWLINE y = 2 NEWLINE
     # Identifiers should be normalized
     id_tokens = [t for t in tokens if t.kind == "$ID"]
-    assert len(id_tokens) >= 2  # x and y
+    assert len(id_tokens) == 2  # x and y
+    assert id_tokens[0].kind == "$ID"
+    assert id_tokens[1].kind == "$ID"
 
 
 def test_tokenize_python_normalizes_identifiers():
@@ -99,6 +107,7 @@ def test_tokenize_python_normalizes_numbers():
     tokens = _tokenize_python(source)
     num_tokens = [t for t in tokens if t.kind == "$NUM"]
     assert len(num_tokens) == 1
+    assert num_tokens[0].kind == "$NUM"
 
 
 def test_tokenize_file_nonexistent():
@@ -130,6 +139,7 @@ def test_rolling_hashes_basic():
     tokens = [_Token(kind=f"tok{i}", line=1) for i in range(10)]
     hashes = _rolling_hashes(tokens, window=5)
     assert len(hashes) == 6  # 10 - 5 + 1
+    assert len(tokens) == 10
 
 
 def test_rolling_hashes_too_short():
@@ -172,6 +182,7 @@ def test_find_clones_cross_file_identical():
     # Both files should be represented
     files_in_clones = set()
     for cs in clones:
+        assert len(cs.blocks) >= 2  # cross-file clone has at least 2 blocks
         for b in cs.blocks:
             files_in_clones.add(b.file_path)
     assert "a.py" in files_in_clones

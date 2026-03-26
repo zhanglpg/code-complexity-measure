@@ -4,6 +4,10 @@ import tempfile
 import os
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_go, requires_java, requires_js
+
 from complexity_accounting.scanner import scan_file, scan_directory, ScanResult
 
 
@@ -536,6 +540,9 @@ def test_scan_directory_includes_test_files_when_flag_set():
         assert any("test_app.py" in p for p in paths)
 
 
+@requires_go
+@requires_java
+@requires_js
 def test_scan_directory_excludes_multi_language_test_files():
     """Test file exclusion works across supported languages."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1434,6 +1441,15 @@ def test_scan_result_to_dict_includes_mi():
         assert fn_data["maintainability_index"] > 0
     finally:
         os.unlink(path)
+
+
+def test_package_version():
+    """Test __version__ is a valid semver string."""
+    import complexity_accounting
+    assert complexity_accounting.__version__ == "1.6.1"
+    parts = complexity_accounting.__version__.split(".")
+    assert len(parts) == 3
+    assert all(p.isdigit() for p in parts)
 
 
 if __name__ == "__main__":
