@@ -4,8 +4,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_js
+
 from complexity_accounting.js_parser import scan_js_file, count_js_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+pytestmark = requires_js
 
 
 def _write_temp_js(source: str) -> str:

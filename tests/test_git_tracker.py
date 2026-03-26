@@ -107,16 +107,14 @@ def test_delta_report_to_dict_structure():
     ]
     r = _make_report(file_deltas=deltas)
     d = r.to_dict()
-    assert "base_ref" in d
-    assert "head_ref" in d
-    assert "base_ncs" in d
-    assert "head_ncs" in d
-    assert "ncs_delta" in d
-    assert "total_cognitive_delta" in d
-    assert "improved_count" in d
-    assert "worsened_count" in d
-    assert "files" in d
-    # Both files should appear (added + nonzero delta)
+    assert d["base_ref"] == "main"
+    assert d["head_ref"] == "HEAD"
+    assert d["base_ncs"] == 5.0
+    assert d["head_ncs"] == 7.0
+    assert d["ncs_delta"] == 2.0
+    assert d["total_cognitive_delta"] == 9  # 5 + 4
+    assert d["improved_count"] == 0
+    assert d["worsened_count"] == 2
     assert len(d["files"]) == 2
 
 

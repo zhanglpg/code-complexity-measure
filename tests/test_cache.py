@@ -131,10 +131,11 @@ def test_cache_clear():
         try:
             fm = scan_file(path)
             cache.put(path, fm)
-            assert cache.get(path) is not None
+            cached = cache.get(path)
+            assert cached.path == fm.path
 
             count = cache.clear()
-            assert count >= 1
+            assert count == 1
             assert cache.get(path) is None
         finally:
             os.unlink(path)
@@ -154,10 +155,10 @@ def test_cache_with_classes():
             cache.put(path, fm)
 
             cached = cache.get(path)
-            assert cached is not None
+            assert cached.path == fm.path
             assert len(cached.classes) == 1
             assert cached.classes[0].name == "MyClass"
-            assert cached.classes[0].method_count >= 1
+            assert cached.classes[0].method_count == 1
         finally:
             os.unlink(path)
 

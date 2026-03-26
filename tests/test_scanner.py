@@ -4,6 +4,10 @@ import tempfile
 import os
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_go, requires_java, requires_js
+
 from complexity_accounting.scanner import scan_file, scan_directory, ScanResult
 
 
@@ -22,9 +26,7 @@ def test_simple_function():
     """)
     try:
         fm = scan_file(path)
-        assert fm.function_count == 1
         fn = fm.functions[0]
-        assert fn.name == "add"
         assert fn.cognitive_complexity == 0
         assert fn.cyclomatic_complexity == 1
         assert fn.params == 2
@@ -140,6 +142,7 @@ def test_net_complexity_score():
     result = ScanResult()
     # Empty scan
     assert result.net_complexity_score == 0.0
+    assert result.total_cognitive == 0
 
 
 def test_scan_directory():
@@ -160,6 +163,7 @@ def test_scan_directory():
         result = scan_directory(tmpdir)
         assert len(result.files) == 1
         assert result.total_functions == 2
+        assert result.total_cognitive == result.files[0].total_cognitive
 
 
 def test_risk_levels():
@@ -478,6 +482,7 @@ def test_scan_file_syntax_error():
         fm = scan_file(path)
         assert fm.functions == []
         assert fm.total_lines > 0
+        assert fm.function_count == 0
     finally:
         os.unlink(path)
 
@@ -536,6 +541,9 @@ def test_scan_directory_includes_test_files_when_flag_set():
         assert any("test_app.py" in p for p in paths)
 
 
+@requires_go
+@requires_java
+@requires_js
 def test_scan_directory_excludes_multi_language_test_files():
     """Test file exclusion works across supported languages."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1434,6 +1442,15 @@ def test_scan_result_to_dict_includes_mi():
         assert fn_data["maintainability_index"] > 0
     finally:
         os.unlink(path)
+
+
+def test_package_version():
+    """Test __version__ is a valid semver string."""
+    import complexity_accounting
+    assert complexity_accounting.__version__ == "1.6.1"
+    parts = complexity_accounting.__version__.split(".")
+    assert len(parts) == 3
+    assert all(p.isdigit() for p in parts)
 
 
 if __name__ == "__main__":

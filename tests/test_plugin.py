@@ -1,5 +1,6 @@
 """Tests for plugin architecture."""
 from complexity_accounting.plugin import (
+    ENTRY_POINT_GROUP,
     LanguagePlugin,
     list_plugins,
     get_plugin_for_extension,
@@ -34,14 +35,17 @@ def test_mock_plugin_is_language_plugin():
 def test_mock_plugin_properties():
     plugin = MockKotlinPlugin()
     assert plugin.name == "Kotlin"
-    assert ".kt" in plugin.extensions
-    assert ".kts" in plugin.extensions
+    assert plugin.extensions == (".kt", ".kts")
+    assert len(plugin.extensions) == 2
 
 
 def test_mock_plugin_scan():
     plugin = MockKotlinPlugin()
     fm = plugin.scan_file("test.kt")
     assert fm.path == "test.kt"
+    assert fm.function_count == 0
+    assert fm.total_lines == 0
+    assert fm.functions == []
 
 
 # ── Non-conforming classes ──────────────────────────────────────────────
@@ -61,9 +65,7 @@ def test_bad_plugin_not_language_plugin():
 def test_list_plugins_returns_list():
     clear_plugin_cache()
     result = list_plugins()
-    assert isinstance(result, list)
-    # No third-party plugins installed in test env
-    # Just verify it doesn't crash
+    assert result == []
 
 
 def test_get_plugin_for_unknown_extension():
@@ -84,4 +86,28 @@ def test_clear_plugin_cache():
 def test_discover_plugins_returns_dict():
     clear_plugin_cache()
     result = _discover_plugins()
-    assert isinstance(result, dict)
+    assert result == {}
+
+
+# ── Caching behaviour ──────────────────────────────────────────────────
+
+def test_plugin_cache_returns_same_result():
+    clear_plugin_cache()
+    first = _discover_plugins()
+    second = _discover_plugins()
+    assert first is second
+
+
+def test_clear_cache_resets_discovery():
+    clear_plugin_cache()
+    first = _discover_plugins()
+    clear_plugin_cache()
+    second = _discover_plugins()
+    assert first is not second
+    assert first == second
+
+
+# ── Constants ───────────────────────────────────────────────────────────
+
+def test_entry_point_group_constant():
+    assert ENTRY_POINT_GROUP == "complexity_accounting.languages"

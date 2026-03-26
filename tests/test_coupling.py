@@ -59,6 +59,7 @@ def test_stdlib_only():
     try:
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
+        assert m.imports == []
     finally:
         os.unlink(path)
 
@@ -72,6 +73,7 @@ def test_dedup_top_level():
         m = analyze_file_coupling(path)
         # Both are 'requests' top-level, counted once
         assert m.efferent_coupling == 1
+        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -106,6 +108,8 @@ def test_directory_coupling():
         assert len(data) == 2
         assert data["a.py"].efferent_coupling == 1
         assert data["b.py"].efferent_coupling == 0
+        assert data["b.py"].imports == []
+        assert len(data["a.py"].imports) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -119,8 +123,9 @@ def test_relative_import():
     """)
     try:
         m = analyze_file_coupling(path)
-        # Should not crash; relative imports have module names
-        assert isinstance(m, CouplingMetrics)
+        # Relative imports: '..core' resolves to 'core' which is not stdlib
+        assert m.efferent_coupling == 1
+        assert "core" in m.imports
     finally:
         os.unlink(path)
 
@@ -131,8 +136,9 @@ def test_star_import():
     """)
     try:
         m = analyze_file_coupling(path)
-        # ImportStar is handled gracefully
-        assert isinstance(m, CouplingMetrics)
+        # Star import from external package counts as coupling
+        assert m.efferent_coupling == 1
+        assert "somelib" in m.imports
     finally:
         os.unlink(path)
 
@@ -144,6 +150,7 @@ def test_parser_syntax_error():
     try:
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
+        assert m.imports == []
     finally:
         os.unlink(path)
 
@@ -182,6 +189,8 @@ def test_star_import_import_statement():
         m = analyze_file_coupling(path)
         # The star import is skipped; requests is counted
         assert "requests" in m.imports
+        assert "somelib" in m.imports
+        assert m.efferent_coupling == 2
     finally:
         os.unlink(path)
 
@@ -197,8 +206,9 @@ def test_dotted_name_nested_attribute():
     """)
     try:
         m = analyze_file_coupling(path)
-        # a.b.c.d → top-level module is 'a'
-        assert isinstance(m, CouplingMetrics)
+        # a.b.c.d → top-level module is 'a', counted as 1 external coupling
+        assert m.efferent_coupling == 1
+        assert "a.b.c.d" in m.imports
     finally:
         os.unlink(path)
 
@@ -218,6 +228,8 @@ def test_directory_coupling_with_exclusion():
         data = analyze_directory_coupling(tmpdir, exclude_patterns=["test_*"])
         assert "main.py" in data
         assert "test_something.py" not in data
+        assert len(data) == 1
+        assert data["main.py"].efferent_coupling == 1
 
 
 def test_directory_coupling_skips_broken_files():
@@ -231,6 +243,7 @@ def test_directory_coupling_skips_broken_files():
         data = analyze_directory_coupling(tmpdir)
         # Should have at least the good file
         assert "good.py" in data
+        assert data["good.py"].efferent_coupling == 1
 
 
 if __name__ == "__main__":

@@ -198,9 +198,9 @@ def test_get_risk_levels_with_language():
 def test_load_config_default_dir():
     """load_config(None) should use cwd and return valid config."""
     config = load_config(None)
-    assert isinstance(config, Config)
     # Should have all defaults since cwd likely has no config file
-    assert config.hotspot_threshold == config.hotspot_threshold  # valid int
+    assert config.hotspot_threshold == 10
+    assert config.risk_low == 5
 
 
 # ---------------------------------------------------------------------------

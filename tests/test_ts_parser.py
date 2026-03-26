@@ -4,8 +4,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_ts
+
 from complexity_accounting.ts_parser import scan_ts_file, count_ts_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+pytestmark = requires_ts
 
 
 def _write_temp_ts(source: str, suffix: str = ".ts") -> str:

@@ -44,7 +44,8 @@ def test_analyze_churn_parses_numstat():
 
     with patch("complexity_accounting.churn.subprocess.run", return_value=mock_result):
         data = analyze_churn("/fake/repo")
-        assert data["scanner.py"] == 2
+        assert len(data) == 3
+        assert data["scanner.py"] == 2  # appears in 2 commits
         assert data["__main__.py"] == 1
         assert data["config.py"] == 1
 
@@ -75,6 +76,7 @@ def test_analyze_churn_malformed_output():
         data = analyze_churn("/fake/repo")
     assert "valid.py" in data
     assert len(data) == 1  # malformed lines skipped
+    assert data["valid.py"] == 1
 
 
 def test_analyze_churn_file_renames():
@@ -84,6 +86,22 @@ def test_analyze_churn_file_renames():
     with patch("complexity_accounting.churn.subprocess.run", return_value=mock_result):
         data = analyze_churn("/fake/repo")
     assert len(data) == 1  # rename path counted as-is
+    # The renamed file appears with commit count 1
+    values = list(data.values())
+    assert values[0] == 1
+
+
+def test_churn_factor_zero_churn():
+    data = {"a.py": 0, "b.py": 0}
+    # No churn means factor stays at 1.0
+    assert compute_churn_factor(data) == 1.0
+
+
+def test_churn_factor_high_churn():
+    data = {"a.py": 100}
+    factor = compute_churn_factor(data)
+    assert factor > 1.0
+    assert factor < 2.0  # bounded by log scale
 
 
 if __name__ == "__main__":

@@ -3,7 +3,12 @@ import textwrap
 import tempfile
 import os
 
+import pytest
+
 from complexity_accounting.scanner import scan_file, ClassMetrics
+from conftest import (
+    requires_java, requires_ts, requires_js, requires_go, requires_rust, requires_cpp,
+)
 
 
 def _write_temp(source: str, suffix: str = ".py") -> str:
@@ -134,6 +139,7 @@ def test_class_metrics_empty():
 
 # ── Java ────────────────────────────────────────────────────────────────
 
+@requires_java
 def test_java_class_metrics():
     path = _write_temp("""
         public class MyService {
@@ -160,6 +166,7 @@ def test_java_class_metrics():
 
 # ── TypeScript ──────────────────────────────────────────────────────────
 
+@requires_ts
 def test_ts_class_metrics():
     path = _write_temp("""
         class UserService {
@@ -187,6 +194,7 @@ def test_ts_class_metrics():
 
 # ── JavaScript ──────────────────────────────────────────────────────────
 
+@requires_js
 def test_js_class_metrics():
     path = _write_temp("""
         class Animal {
@@ -214,6 +222,7 @@ def test_js_class_metrics():
 
 # ── Go ──────────────────────────────────────────────────────────────────
 
+@requires_go
 def test_go_class_metrics():
     """Go groups methods by receiver type."""
     path = _write_temp("""
@@ -249,6 +258,7 @@ def test_go_class_metrics():
 
 # ── Rust ────────────────────────────────────────────────────────────────
 
+@requires_rust
 def test_rust_class_metrics():
     path = _write_temp("""
         struct Counter {
@@ -280,6 +290,7 @@ def test_rust_class_metrics():
 
 # ── C++ ─────────────────────────────────────────────────────────────────
 
+@requires_cpp
 def test_cpp_class_metrics():
     path = _write_temp("""
         class Widget {

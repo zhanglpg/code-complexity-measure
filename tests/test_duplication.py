@@ -50,16 +50,22 @@ def test_compute_duplication_factor_bounded():
     }
     factor = compute_duplication_factor(data)
     assert factor <= 2.0
+    assert factor == 2.0
 
 
 def test_duplication_ratio_property():
     m = DuplicationMetrics(file_path="x.py", duplicated_lines=25, total_lines=100)
     assert m.duplication_ratio == 0.25
+    assert m.duplicated_lines == 25
+    assert m.total_lines == 100
+    assert m.file_path == "x.py"
 
 
 def test_duplication_ratio_zero_lines():
     m = DuplicationMetrics(file_path="x.py", duplicated_lines=0, total_lines=0)
     assert m.duplication_ratio == 0.0
+    assert m.duplicated_lines == 0
+    assert m.total_lines == 0
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +75,10 @@ def test_duplication_ratio_zero_lines():
 def test_tokenize_python_basic():
     source = "x = 1\ny = 2\n"
     tokens = _tokenize_python(source)
-    assert len(tokens) > 0
+    assert len(tokens) >= 6  # x = 1 NEWLINE y = 2 NEWLINE
     # Identifiers should be normalized
     id_tokens = [t for t in tokens if t.kind == "$ID"]
-    assert len(id_tokens) >= 2  # x and y
+    assert len(id_tokens) == 2  # x and y
 
 
 def test_tokenize_python_normalizes_identifiers():
@@ -172,6 +178,7 @@ def test_find_clones_cross_file_identical():
     # Both files should be represented
     files_in_clones = set()
     for cs in clones:
+        assert len(cs.blocks) >= 2  # cross-file clone has at least 2 blocks
         for b in cs.blocks:
             files_in_clones.add(b.file_path)
     assert "a.py" in files_in_clones
@@ -216,6 +223,7 @@ def test_analyze_directory_duplication_no_clones():
         assert len(result) == 2
         for m in result.values():
             assert m.duplicated_lines == 0
+            assert m.duplication_ratio == 0.0
 
 
 def test_analyze_directory_duplication_with_clones():
@@ -232,6 +240,9 @@ def test_analyze_directory_duplication_with_clones():
         assert len(result) == 2
         total_dup = sum(m.duplicated_lines for m in result.values())
         assert total_dup > 0
+        # Both files should be present in results
+        keys = sorted(result.keys())
+        assert len(keys) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +266,7 @@ def test_ncs_multiplicative_with_duplication_factor():
     assert ncs_with_dup > ncs_no_dup
     # Multiplicative: ncs_with_dup should be ~1.5x ncs_no_dup
     assert abs(ncs_with_dup / ncs_no_dup - 1.5) < 0.01
+    assert ncs_no_dup != ncs_with_dup
 
 
 def test_ncs_additive_with_duplication_factor():
@@ -272,6 +284,7 @@ def test_ncs_additive_with_duplication_factor():
     ncs_no_dup = result.compute_ncs(config, duplication_factor=1.0)
     ncs_with_dup = result.compute_ncs(config, duplication_factor=1.5)
     assert ncs_with_dup > ncs_no_dup
+    assert ncs_no_dup != ncs_with_dup
 
 
 def test_ncs_explained_includes_duplication():
@@ -301,6 +314,7 @@ def test_ncs_explained_empty_includes_duplication():
     assert "duplication_factor" in explanation
     assert "duplication_contribution" in explanation
     assert explanation["duplication_factor"] == 1.2
+    assert explanation["ncs"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +328,7 @@ def test_config_has_duplication_fields():
     assert hasattr(config, "duplication_min_tokens")
     assert config.weight_duplication == 0.15
     assert config.duplication_min_tokens == 50
+    assert config.ncs_model == "multiplicative"
 
 
 if __name__ == "__main__":

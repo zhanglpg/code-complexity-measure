@@ -4,8 +4,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import pytest
+
+from conftest import requires_java
+
 from complexity_accounting.java_parser import scan_java_file, count_java_lines
 from complexity_accounting.scanner import scan_file, scan_directory
+
+pytestmark = requires_java
 
 
 def _write_temp_java(source: str) -> str:
