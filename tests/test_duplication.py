@@ -146,6 +146,7 @@ def test_rolling_hashes_too_short():
     tokens = [_Token(kind="a", line=1) for _ in range(3)]
     hashes = _rolling_hashes(tokens, window=5)
     assert hashes == []
+    assert len(tokens) == 3
 
 
 def test_rolling_hashes_identical_windows():
@@ -155,6 +156,7 @@ def test_rolling_hashes_identical_windows():
     # All windows are identical, so all hashes should be the same
     hash_values = [h for h, _ in hashes]
     assert len(set(hash_values)) == 1
+    assert len(hashes) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +172,7 @@ def test_find_clones_single_file_no_duplication():
     tokens = [_Token(kind=f"unique_{i}", line=i) for i in range(100)]
     clones = find_clones({"a.py": tokens}, min_tokens=10)
     assert len(clones) == 0
+    assert len(tokens) == 100
 
 
 def test_find_clones_cross_file_identical():
@@ -207,6 +210,8 @@ def test_find_clones_below_threshold():
     tokens_b = [_Token(kind="x", line=1)] * 5
     clones = find_clones({"a.py": tokens_a, "b.py": tokens_b}, min_tokens=10)
     assert len(clones) == 0
+    assert len(tokens_a) == 5
+    assert len(tokens_b) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +232,7 @@ def test_analyze_directory_duplication_no_clones():
         assert len(result) == 2
         for m in result.values():
             assert m.duplicated_lines == 0
+            assert m.duplication_ratio == 0.0
 
 
 def test_analyze_directory_duplication_with_clones():
@@ -243,6 +249,9 @@ def test_analyze_directory_duplication_with_clones():
         assert len(result) == 2
         total_dup = sum(m.duplicated_lines for m in result.values())
         assert total_dup > 0
+        # Both files should be present in results
+        keys = sorted(result.keys())
+        assert len(keys) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +275,7 @@ def test_ncs_multiplicative_with_duplication_factor():
     assert ncs_with_dup > ncs_no_dup
     # Multiplicative: ncs_with_dup should be ~1.5x ncs_no_dup
     assert abs(ncs_with_dup / ncs_no_dup - 1.5) < 0.01
+    assert ncs_no_dup != ncs_with_dup
 
 
 def test_ncs_additive_with_duplication_factor():
