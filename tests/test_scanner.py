@@ -416,6 +416,8 @@ def test_cognitive_nested_lambda():
         fn = fm.functions[0]
         # Lambda increases nesting, ternary (IfExp) adds +1
         assert fn.cognitive_complexity >= 1
+        assert fn.name == "outer"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -433,6 +435,8 @@ def test_cognitive_with_statement_nesting():
         fn = fm.functions[0]
         # with adds nesting, if inside gets +2 (1 + nesting=1)
         assert fn.cognitive_complexity == 2
+        assert fn.name == "read_file"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -449,6 +453,8 @@ def test_cognitive_ternary_in_nesting():
         fn = fm.functions[0]
         # for: +1, if: +2 (nested), ternary: +1 (flat, no nesting penalty)
         assert fn.cognitive_complexity == 4
+        assert fn.name == "compute"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -467,6 +473,8 @@ def test_cyclomatic_assert():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cyclomatic_complexity == 2  # baseline 1 + assert
+        assert fn.name == "validate"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -483,6 +491,8 @@ def test_cyclomatic_mixed_boolean():
         fn = fm.functions[0]
         # baseline 1 + if + and + or = 4
         assert fn.cyclomatic_complexity >= 3
+        assert fn.name == "check"
+        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -499,6 +509,7 @@ def test_scan_file_syntax_error():
         fm = scan_file(path)
         assert fm.functions == []
         assert fm.total_lines > 0
+        assert fm.function_count == 0
     finally:
         os.unlink(path)
 
@@ -628,6 +639,8 @@ def test_compute_ncs_additive_zero_functions():
     result = ScanResult()
     config = Config(ncs_model="additive")
     assert result.compute_ncs(config) == 0.0
+    assert result.total_functions == 0
+    assert config.ncs_model == "additive"
 
 
 def test_compute_ncs_additive_vs_multiplicative():
@@ -654,6 +667,7 @@ def test_compute_ncs_additive_vs_multiplicative():
         assert ncs_mult != ncs_add
         assert ncs_mult > 0
         assert ncs_add > 0
+        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
@@ -788,6 +802,7 @@ def test_compute_ncs_explained_zero_functions():
     exp = result.compute_ncs_explained()
     assert exp["ncs"] == 0.0
     assert exp["dominant_factor"] == "none"
+    assert result.total_functions == 0
 
 
 def test_compute_ncs_explained_dominant_factor():
