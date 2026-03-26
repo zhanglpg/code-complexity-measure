@@ -176,6 +176,7 @@ def test_scan_directory():
         result = scan_directory(tmpdir)
         assert len(result.files) == 1
         assert result.total_functions == 2
+        assert result.total_cognitive == result.files[0].total_cognitive
 
 
 def test_risk_levels():
@@ -218,6 +219,8 @@ def test_get_risk_level_very_high():
     from complexity_accounting.scanner import FunctionMetrics
     fn = FunctionMetrics("f", "f", "x.py", 1, 5, cognitive_complexity=25)
     assert fn.get_risk_level() == "very_high"
+    assert fn.cognitive_complexity == 25
+    assert fn.name == "f"
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +301,7 @@ def test_compute_ncs_with_config():
         # They should differ since we're using different weights and factors
         assert ncs_with != ncs_legacy
         assert ncs_with > 0
+        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
@@ -305,6 +309,7 @@ def test_compute_ncs_with_config():
 def test_compute_ncs_zero_functions():
     result = ScanResult()
     assert result.compute_ncs() == 0.0
+    assert result.total_functions == 0
 
 
 def test_compute_ncs_legacy_defaults():
@@ -613,6 +618,7 @@ def test_compute_ncs_additive_model():
         config = Config(ncs_model="additive", weight_cognitive=0.7, weight_cyclomatic=0.3)
         ncs = result.compute_ncs(config, churn_factor=1.2, coupling_factor=1.5)
         assert ncs > 0
+        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
