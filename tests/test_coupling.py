@@ -110,6 +110,8 @@ def test_directory_coupling():
         assert len(data) == 2
         assert data["a.py"].efferent_coupling == 1
         assert data["b.py"].efferent_coupling == 0
+        assert data["b.py"].imports == []
+        assert len(data["a.py"].imports) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +154,8 @@ def test_parser_syntax_error():
     try:
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
+        assert m.imports == []
+        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 
@@ -208,6 +212,7 @@ def test_dotted_name_nested_attribute():
         # a.b.c.d → top-level module is 'a', counted as 1 external coupling
         assert m.efferent_coupling == 1
         assert "a.b.c.d" in m.imports
+        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -227,6 +232,8 @@ def test_directory_coupling_with_exclusion():
         data = analyze_directory_coupling(tmpdir, exclude_patterns=["test_*"])
         assert "main.py" in data
         assert "test_something.py" not in data
+        assert len(data) == 1
+        assert data["main.py"].efferent_coupling == 1
 
 
 def test_directory_coupling_skips_broken_files():
@@ -240,6 +247,7 @@ def test_directory_coupling_skips_broken_files():
         data = analyze_directory_coupling(tmpdir)
         # Should have at least the good file
         assert "good.py" in data
+        assert data["good.py"].efferent_coupling == 1
 
 
 if __name__ == "__main__":
