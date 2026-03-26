@@ -79,8 +79,6 @@ def test_tokenize_python_basic():
     # Identifiers should be normalized
     id_tokens = [t for t in tokens if t.kind == "$ID"]
     assert len(id_tokens) == 2  # x and y
-    assert id_tokens[0].kind == "$ID"
-    assert id_tokens[1].kind == "$ID"
 
 
 def test_tokenize_python_normalizes_identifiers():
@@ -107,7 +105,6 @@ def test_tokenize_python_normalizes_numbers():
     tokens = _tokenize_python(source)
     num_tokens = [t for t in tokens if t.kind == "$NUM"]
     assert len(num_tokens) == 1
-    assert num_tokens[0].kind == "$NUM"
 
 
 def test_tokenize_file_nonexistent():
@@ -139,14 +136,12 @@ def test_rolling_hashes_basic():
     tokens = [_Token(kind=f"tok{i}", line=1) for i in range(10)]
     hashes = _rolling_hashes(tokens, window=5)
     assert len(hashes) == 6  # 10 - 5 + 1
-    assert len(tokens) == 10
 
 
 def test_rolling_hashes_too_short():
     tokens = [_Token(kind="a", line=1) for _ in range(3)]
     hashes = _rolling_hashes(tokens, window=5)
     assert hashes == []
-    assert len(tokens) == 3
 
 
 def test_rolling_hashes_identical_windows():
@@ -156,7 +151,6 @@ def test_rolling_hashes_identical_windows():
     # All windows are identical, so all hashes should be the same
     hash_values = [h for h, _ in hashes]
     assert len(set(hash_values)) == 1
-    assert len(hashes) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +166,6 @@ def test_find_clones_single_file_no_duplication():
     tokens = [_Token(kind=f"unique_{i}", line=i) for i in range(100)]
     clones = find_clones({"a.py": tokens}, min_tokens=10)
     assert len(clones) == 0
-    assert len(tokens) == 100
 
 
 def test_find_clones_cross_file_identical():
@@ -210,8 +203,6 @@ def test_find_clones_below_threshold():
     tokens_b = [_Token(kind="x", line=1)] * 5
     clones = find_clones({"a.py": tokens_a, "b.py": tokens_b}, min_tokens=10)
     assert len(clones) == 0
-    assert len(tokens_a) == 5
-    assert len(tokens_b) == 5
 
 
 # ---------------------------------------------------------------------------

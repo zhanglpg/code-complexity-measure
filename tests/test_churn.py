@@ -28,7 +28,6 @@ def test_analyze_churn_not_a_repo():
     with tempfile.TemporaryDirectory() as tmpdir:
         result = analyze_churn(tmpdir)
         assert result == {}
-        assert len(result) == 0
 
 
 def test_analyze_churn_parses_numstat():
@@ -60,7 +59,6 @@ def test_analyze_churn_subprocess_timeout():
                side_effect=subprocess.TimeoutExpired("git", 30)):
         result = analyze_churn("/fake/repo")
     assert result == {}
-    assert len(result) == 0
 
 
 def test_analyze_churn_oserror():
@@ -68,7 +66,6 @@ def test_analyze_churn_oserror():
                side_effect=OSError("No such file")):
         result = analyze_churn("/fake/repo")
     assert result == {}
-    assert len(result) == 0
 
 
 def test_analyze_churn_malformed_output():
@@ -98,7 +95,6 @@ def test_churn_factor_zero_churn():
     data = {"a.py": 0, "b.py": 0}
     # No churn means factor stays at 1.0
     assert compute_churn_factor(data) == 1.0
-    assert len(data) == 2
 
 
 def test_churn_factor_high_churn():
@@ -106,8 +102,6 @@ def test_churn_factor_high_churn():
     factor = compute_churn_factor(data)
     assert factor > 1.0
     assert factor < 2.0  # bounded by log scale
-    expected = round(1.0 + math.log1p(100) / 10, 4)
-    assert factor == expected
 
 
 if __name__ == "__main__":

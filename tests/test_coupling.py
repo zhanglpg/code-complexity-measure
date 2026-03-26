@@ -45,7 +45,6 @@ def test_no_imports():
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
         assert m.imports == []
-        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 
@@ -61,7 +60,6 @@ def test_stdlib_only():
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
         assert m.imports == []
-        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 
@@ -128,7 +126,6 @@ def test_relative_import():
         # Relative imports: '..core' resolves to 'core' which is not stdlib
         assert m.efferent_coupling == 1
         assert "core" in m.imports
-        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -142,7 +139,6 @@ def test_star_import():
         # Star import from external package counts as coupling
         assert m.efferent_coupling == 1
         assert "somelib" in m.imports
-        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 
@@ -155,7 +151,6 @@ def test_parser_syntax_error():
         m = analyze_file_coupling(path)
         assert m.efferent_coupling == 0
         assert m.imports == []
-        assert len(m.imports) == 0
     finally:
         os.unlink(path)
 
@@ -214,7 +209,6 @@ def test_dotted_name_nested_attribute():
         # a.b.c.d → top-level module is 'a', counted as 1 external coupling
         assert m.efferent_coupling == 1
         assert "a.b.c.d" in m.imports
-        assert len(m.imports) == 1
     finally:
         os.unlink(path)
 

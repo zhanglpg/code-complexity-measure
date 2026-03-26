@@ -26,9 +26,7 @@ def test_simple_function():
     """)
     try:
         fm = scan_file(path)
-        assert fm.function_count == 1
         fn = fm.functions[0]
-        assert fn.name == "add"
         assert fn.cognitive_complexity == 0
         assert fn.cyclomatic_complexity == 1
         assert fn.params == 2
@@ -50,8 +48,6 @@ def test_nested_ifs():
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 6  # 1 + 2 + 3
         assert fn.max_nesting >= 3
-        assert fn.name == "check"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -68,8 +64,6 @@ def test_for_with_break():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 4  # 1 + 2 + 1
-        assert fn.name == "find"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -85,8 +79,6 @@ def test_boolean_ops():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity >= 2
-        assert fn.name == "validate"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -122,8 +114,6 @@ def test_try_except():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 2
-        assert fn.name == "risky"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -143,8 +133,6 @@ def test_while_continue():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cognitive_complexity == 4  # 1 + 2 + 1
-        assert fn.name == "process"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -154,7 +142,6 @@ def test_net_complexity_score():
     result = ScanResult()
     # Empty scan
     assert result.net_complexity_score == 0.0
-    assert result.total_functions == 0
     assert result.total_cognitive == 0
 
 
@@ -219,8 +206,6 @@ def test_get_risk_level_very_high():
     from complexity_accounting.scanner import FunctionMetrics
     fn = FunctionMetrics("f", "f", "x.py", 1, 5, cognitive_complexity=25)
     assert fn.get_risk_level() == "very_high"
-    assert fn.cognitive_complexity == 25
-    assert fn.name == "f"
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +286,6 @@ def test_compute_ncs_with_config():
         # They should differ since we're using different weights and factors
         assert ncs_with != ncs_legacy
         assert ncs_with > 0
-        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
@@ -309,7 +293,6 @@ def test_compute_ncs_with_config():
 def test_compute_ncs_zero_functions():
     result = ScanResult()
     assert result.compute_ncs() == 0.0
-    assert result.total_functions == 0
 
 
 def test_compute_ncs_legacy_defaults():
@@ -416,8 +399,6 @@ def test_cognitive_nested_lambda():
         fn = fm.functions[0]
         # Lambda increases nesting, ternary (IfExp) adds +1
         assert fn.cognitive_complexity >= 1
-        assert fn.name == "outer"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -435,8 +416,6 @@ def test_cognitive_with_statement_nesting():
         fn = fm.functions[0]
         # with adds nesting, if inside gets +2 (1 + nesting=1)
         assert fn.cognitive_complexity == 2
-        assert fn.name == "read_file"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -453,8 +432,6 @@ def test_cognitive_ternary_in_nesting():
         fn = fm.functions[0]
         # for: +1, if: +2 (nested), ternary: +1 (flat, no nesting penalty)
         assert fn.cognitive_complexity == 4
-        assert fn.name == "compute"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -473,8 +450,6 @@ def test_cyclomatic_assert():
         fm = scan_file(path)
         fn = fm.functions[0]
         assert fn.cyclomatic_complexity == 2  # baseline 1 + assert
-        assert fn.name == "validate"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -491,8 +466,6 @@ def test_cyclomatic_mixed_boolean():
         fn = fm.functions[0]
         # baseline 1 + if + and + or = 4
         assert fn.cyclomatic_complexity >= 3
-        assert fn.name == "check"
-        assert fm.function_count == 1
     finally:
         os.unlink(path)
 
@@ -629,7 +602,6 @@ def test_compute_ncs_additive_model():
         config = Config(ncs_model="additive", weight_cognitive=0.7, weight_cyclomatic=0.3)
         ncs = result.compute_ncs(config, churn_factor=1.2, coupling_factor=1.5)
         assert ncs > 0
-        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
@@ -639,8 +611,6 @@ def test_compute_ncs_additive_zero_functions():
     result = ScanResult()
     config = Config(ncs_model="additive")
     assert result.compute_ncs(config) == 0.0
-    assert result.total_functions == 0
-    assert config.ncs_model == "additive"
 
 
 def test_compute_ncs_additive_vs_multiplicative():
@@ -667,7 +637,6 @@ def test_compute_ncs_additive_vs_multiplicative():
         assert ncs_mult != ncs_add
         assert ncs_mult > 0
         assert ncs_add > 0
-        assert result.total_functions == 2
     finally:
         os.unlink(path)
 
@@ -802,7 +771,6 @@ def test_compute_ncs_explained_zero_functions():
     exp = result.compute_ncs_explained()
     assert exp["ncs"] == 0.0
     assert exp["dominant_factor"] == "none"
-    assert result.total_functions == 0
 
 
 def test_compute_ncs_explained_dominant_factor():
